@@ -1086,7 +1086,8 @@ function renderStock(){
     </button>
   </div>`;
 
-
+  document.getElementById("page-stock").innerHTML=html;
+}
 
 // ============ DEFECTS VIEW ============
 async function saveDefect(){
@@ -1211,8 +1212,6 @@ function printCastings(){
   <div class="footer">Сформировано: ${new Date().toLocaleDateString("ru-RU")} ${new Date().toLocaleTimeString("ru-RU")}</div>
   </body></html>`;
   const w=window.open("","_blank");w.document.write(html);w.document.close();setTimeout(()=>w.print(),500);
-}
-
 }
 
 function renderStockTable(title, bal, showHistory){
