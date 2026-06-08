@@ -149,6 +149,7 @@ const INCOME_CAT = ["Плиты перекрытия","Кольца","Крышк
 const EXPENSE_CAT = ["Продукты","Арматура","Цемент","Щебень","Песок","Эл. Энергия","Зарплаты","Металл круг","ВР1","Произведённые расходы","Прочие расходы","Вязальная проволока","Электроды","Отрезные диски","Ремонт","Отработка","Миграция","Налоги","З/П за выходные дни"];
 const DIVIDEND_CAT = ["Дивиденды Жоке","Дивиденды Сайфулла ака","Дивиденды Завод"];
 const STOCK_ITEMS = ["Плиты перекрытия","Кольца","Крышка колодца","Лотки","ФБС блоки","Песок","Щебень","Цемент"];
+const CAST_ITEMS = ["Плиты перекрытия","Кольца","Крышка колодца","Лотки","ФБС блоки"];
 
 // ============ UTILS ============
 const fmt = n => new Intl.NumberFormat("ru-KZ",{minimumFractionDigits:0,maximumFractionDigits:0}).format(n||0);
@@ -162,7 +163,7 @@ const esc = s => String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replac
 let currentUser = null;
 let currentPage = "dashboard";
 let unsubs = [];
-let data = {orders:[], transactions:[], stock:[], debts:[], warehouses:[], nextOrderNum:1};
+let data = {orders:[], transactions:[], stock:[], debts:[], warehouses:[], castings:[], nextOrderNum:1};
 
 // ============ AUTH ============
 function doLogin() {
@@ -221,6 +222,10 @@ function startListeners() {
   }));
   unsubs.push(db.collection("warehouses").onSnapshot(snap => {
     data.warehouses = snap.docs.map(d => ({id:d.id,...d.data()}));
+    if (currentPage === "stock") renderStock();
+  }));
+  unsubs.push(db.collection("castings").onSnapshot(snap => {
+    data.castings = snap.docs.map(d => ({id:d.id,...d.data()}));
     if (currentPage === "stock") renderStock();
   }));
 }
@@ -767,6 +772,8 @@ let showWarehouseForm=false;
 let warehouseFormData={name:"",year:new Date().getFullYear(),note:""};
 let showWarehouseStockForm=false;
 let warehouseStockForm={warehouseId:"",item:STOCK_ITEMS[0],qty:"",note:""};
+let showCastForm=false;
+let castFormData={date:today(),item:CAST_ITEMS[0],qty:"",note:""};
 
 function renderStock(){
   const isAdmin=currentUser.role==="admin";
@@ -813,6 +820,7 @@ function renderStock(){
     <button class="btn btn-sm ${activeWarehouseId==='combined'?'':'btn-dark'}" onclick="activeWarehouseId='combined';renderStock()">🗂 Общие остатки</button>
     ${data.warehouses.map(wh=>`<button class="btn btn-sm ${activeWarehouseId===wh.id?'':'btn-dark'}" onclick="activeWarehouseId='${wh.id}';renderStock()">${wh.name}</button>`).join("")}
     ${isAdmin?`<button class="btn btn-sm btn-dark" onclick="showWarehouseForm=!showWarehouseForm;renderStock()" style="border:1px dashed #2a2f3e">+ Новый склад</button>`:""}
+    <button class="btn btn-sm ${activeWarehouseId==='castings'?'':'btn-dark'}" onclick="activeWarehouseId='castings';renderStock()" style="background:${activeWarehouseId==='castings'?'#7c3aed':''}">🏭 Залитые изделия</button>
   </div>`;
 
   // New warehouse form
@@ -916,13 +924,157 @@ function renderStock(){
       🖨 Сохранить / Распечатать PDF
     </button>
   </div>`;
+  // CASTINGS VIEW
+  if(activeWarehouseId==="castings"){
+    const isLimited = currentUser.role==="limited";
+    const canEdit = isAdmin || isLimited;
+    html = `<div class="flex" style="justify-content:space-between;margin-bottom:12px">
+      <div class="section-title" style="margin-bottom:0">🏭 Залитые изделия</div>
+      ${canEdit?`<button class="btn" style="background:#7c3aed" onclick="showCastForm=!showCastForm;renderStock()">+ Добавить</button>`:''}
+    </div>`;
+    // Tabs for stock still visible
+    html += `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;overflow-x:auto">
+      <button class="btn btn-sm btn-dark" onclick="activeWarehouseId='main';renderStock()">📦 Текущий склад</button>
+      <button class="btn btn-sm btn-dark" onclick="activeWarehouseId='combined';renderStock()">🗂 Общие остатки</button>
+      ${data.warehouses.map(wh=>`<button class="btn btn-sm btn-dark" onclick="activeWarehouseId='${wh.id}';renderStock()">${wh.name}</button>`).join("")}
+      ${isAdmin?`<button class="btn btn-sm btn-dark" onclick="showWarehouseForm=!showWarehouseForm;renderStock()" style="border:1px dashed #2a2f3e">+ Новый склад</button>`:""}
+      <button class="btn btn-sm" style="background:#7c3aed">🏭 Залитые изделия</button>
+    </div>`;
 
-  html += `<div style="position:sticky;bottom:0;padding:10px 0 4px;background:linear-gradient(to top,#0f1117 80%,transparent);margin-top:8px">
-    <button onclick="printStockReport(activeWarehouseId)" style="width:100%;padding:14px;font-size:15px;font-weight:700;background:#1e3a5f;color:#fff;border:none;border-radius:12px;cursor:pointer;font-family:'Nunito',sans-serif;box-shadow:0 4px 16px rgba(0,0,0,0.4)">
-      🖨 Сохранить / Распечатать PDF
-    </button>
-  </div>`;
+    if(showCastForm&&canEdit){
+      html+=`<div class="card" style="margin-bottom:12px;border-color:#7c3aed">
+        <div class="label" style="color:#a78bfa">Новая запись залитых изделий</div>
+        <div style="color:#4a5568;font-size:11px;margin-bottom:4px">Дата</div>
+        <input type="date" value="${castFormData.date}" onchange="castFormData.date=this.value" style="margin-bottom:8px"/>
+        <div style="color:#4a5568;font-size:11px;margin-bottom:4px">Изделие</div>
+        <select onchange="castFormData.item=this.value" style="margin-bottom:8px">
+          ${CAST_ITEMS.map(i=>`<option ${castFormData.item===i?"selected":""}>${i}</option>`).join("")}
+        </select>
+        <div style="color:#4a5568;font-size:11px;margin-bottom:4px">Количество (шт)</div>
+        <input type="number" placeholder="0" value="${castFormData.qty}" oninput="castFormData.qty=this.value" style="margin-bottom:8px"/>
+        <div style="color:#4a5568;font-size:11px;margin-bottom:4px">Примечание</div>
+        <input type="text" placeholder="Примечание (необязательно)" value="${castFormData.note||''}" oninput="castFormData.note=this.value" style="margin-bottom:10px"/>
+        <div class="flex">
+          <button class="btn" style="background:#7c3aed" onclick="saveCasting()">Сохранить</button>
+          <button class="btn btn-dark" onclick="showCastForm=false;renderStock()">Отмена</button>
+        </div>
+      </div>`;
+    }
+
+    // Group castings by date
+    const grouped={};
+    [...data.castings].forEach(c=>{
+      if(!grouped[c.date])grouped[c.date]=[];
+      grouped[c.date].push(c);
+    });
+    const sortedDates=Object.keys(grouped).sort((a,b)=>b.localeCompare(a));
+
+    if(!sortedDates.length){
+      html+=`<div class="empty">Записей нет. Добавьте первую запись.</div>`;
+    } else {
+      // Summary table
+      const totals={};
+      CAST_ITEMS.forEach(i=>totals[i]=0);
+      data.castings.forEach(c=>{if(totals[c.item]!==undefined)totals[c.item]+=c.qty;});
+      html+=`<div class="card" style="padding:0;overflow:hidden;margin-bottom:14px;border-color:#7c3aed">
+        <div style="padding:10px 14px;border-bottom:1px solid #2a2f3e;font-weight:700;font-size:13px;color:#a78bfa">Итого залито (все время)</div>
+        <div class="table-wrap"><table>
+          <thead><tr><th style="text-align:left">Изделие</th><th>Количество (шт)</th></tr></thead>
+          <tbody>${CAST_ITEMS.map(item=>`<tr><td>${item}</td><td class="mono" style="color:#a78bfa;font-weight:700;text-align:right">${totals[item]||0}</td></tr>`).join("")}</tbody>
+        </table></div>
+      </div>`;
+
+      // By date
+      sortedDates.forEach(date=>{
+        const rows=grouped[date];
+        html+=`<div class="card" style="margin-bottom:8px;border-left:3px solid #7c3aed">
+          <div style="font-weight:700;font-size:13px;color:#a78bfa;margin-bottom:8px">📅 ${fmtDate(date)}</div>
+          <div class="table-wrap"><table>
+            <thead><tr><th style="text-align:left">Изделие</th><th>Кол.</th><th>Примечание</th>${canEdit?'<th></th>':''}</tr></thead>
+            <tbody>${rows.map(c=>`<tr>
+              <td>${c.item}</td>
+              <td class="mono" style="color:#a78bfa;font-weight:700;text-align:right">${c.qty}</td>
+              <td style="color:#8892a0;font-size:11px">${c.note||'—'}</td>
+              ${canEdit?`<td><button onclick="deleteCasting('${c.id}')" style="background:none;border:none;color:#f87171;cursor:pointer;font-size:13px">✕</button></td>`:''}
+            </tr>`).join("")}</tbody>
+          </table></div>
+        </div>`;
+      });
+    }
+
+    html += `<div style="position:sticky;bottom:0;padding:10px 0 4px;background:linear-gradient(to top,#0f1117 80%,transparent);margin-top:8px">
+      <button onclick="printCastings()" style="width:100%;padding:14px;font-size:15px;font-weight:700;background:#7c3aed;color:#fff;border:none;border-radius:12px;cursor:pointer;font-family:'Nunito',sans-serif;box-shadow:0 4px 16px rgba(0,0,0,0.4)">
+        🖨 Сохранить / Распечатать PDF
+      </button>
+    </div>`;
+
+    document.getElementById("page-stock").innerHTML=html;
+    return;
+  }
+
   document.getElementById("page-stock").innerHTML=html;
+}
+
+async function saveCasting(){
+  if(!castFormData.qty||parseFloat(castFormData.qty)<=0){alert("Введите количество");return;}
+  try{
+    await db.collection("castings").add({
+      date:castFormData.date,
+      item:castFormData.item,
+      qty:parseFloat(castFormData.qty),
+      note:castFormData.note||"",
+      createdAt:Date.now(),
+      createdBy:currentUser.name
+    });
+    castFormData={date:today(),item:CAST_ITEMS[0],qty:"",note:""};
+    showCastForm=false;
+  }catch(e){alert("Ошибка: "+e.message);}
+}
+
+async function deleteCasting(id){
+  if(!confirm("Удалить запись?"))return;
+  await db.collection("castings").doc(id).delete();
+}
+
+function printCastings(){
+  const grouped={};
+  [...data.castings].forEach(c=>{
+    if(!grouped[c.date])grouped[c.date]=[];
+    grouped[c.date].push(c);
+  });
+  const sortedDates=Object.keys(grouped).sort((a,b)=>a.localeCompare(b));
+  const totals={};
+  CAST_ITEMS.forEach(i=>totals[i]=0);
+  data.castings.forEach(c=>{if(totals[c.item]!==undefined)totals[c.item]+=c.qty;});
+
+  let rows="";
+  sortedDates.forEach(date=>{
+    grouped[date].forEach((c,i)=>{
+      rows+=`<tr ${i===0?`style="border-top:2px solid #ddd"`:''}><td>${i===0?fmtDate(date):''}</td><td>${c.item}</td><td align="center" style="font-weight:bold;color:#7c3aed">${c.qty}</td><td>${c.note||'—'}</td></tr>`;
+    });
+  });
+
+  const totalRows=CAST_ITEMS.map(item=>`<tr><td><b>${item}</b></td><td align="center" style="font-weight:bold;color:#7c3aed">${totals[item]||0}</td></tr>`).join("");
+
+  const html=`<html><head><title>Залитые изделия</title>
+  <style>body{font-family:Arial;padding:20px;font-size:13px}h1{font-size:18px;margin-bottom:4px}
+  h2{font-size:14px;margin-top:20px;color:#555}
+  table{width:100%;border-collapse:collapse;margin-bottom:16px}
+  th{background:#f3f0ff;padding:7px 10px;text-align:left;border:1px solid #ddd;font-size:12px}
+  td{padding:7px 10px;border:1px solid #ddd}tr:nth-child(even){background:#fafafa}
+  .footer{margin-top:24px;color:#aaa;font-size:11px;border-top:1px solid #eee;padding-top:10px}</style></head>
+  <body>
+  <h1>⚙ ЗАВОД БУХ — Залитые изделия (по датам)</h1>
+  <p style="color:#888;font-size:12px">Дата формирования: ${new Date().toLocaleDateString("ru-RU")}</p>
+  <h2>По датам</h2>
+  <table><thead><tr><th>Дата</th><th>Изделие</th><th>Количество (шт)</th><th>Примечание</th></tr></thead>
+  <tbody>${rows}</tbody></table>
+  <h2>Итого залито (все время)</h2>
+  <table><thead><tr><th>Изделие</th><th>Итого (шт)</th></tr></thead>
+  <tbody>${totalRows}</tbody></table>
+  <div class="footer">Сформировано: ${new Date().toLocaleDateString("ru-RU")} ${new Date().toLocaleTimeString("ru-RU")}</div>
+  </body></html>`;
+  const w=window.open("","_blank");w.document.write(html);w.document.close();setTimeout(()=>w.print(),500);
 }
 
 function renderStockTable(title, bal, showHistory){
