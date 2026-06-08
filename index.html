@@ -805,6 +805,7 @@ let defectFormData={date:today(),item:CAST_ITEMS[0],qty:"",note:""};
 
 function renderStock(){
   const isAdmin=currentUser.role==="admin";
+  const canEdit = currentUser.role==="admin" || currentUser.role==="limited";
   
   // Compute main stock balance
   const mainBal={};
@@ -848,9 +849,140 @@ function renderStock(){
     <button class="btn btn-sm ${activeWarehouseId==='combined'?'':'btn-dark'}" onclick="activeWarehouseId='combined';renderStock()">🗂 Общие остатки</button>
     ${data.warehouses.map(wh=>`<button class="btn btn-sm ${activeWarehouseId===wh.id?'':'btn-dark'}" onclick="activeWarehouseId='${wh.id}';renderStock()">${wh.name}</button>`).join("")}
     ${isAdmin?`<button class="btn btn-sm btn-dark" onclick="showWarehouseForm=!showWarehouseForm;renderStock()" style="border:1px dashed #2a2f3e">+ Новый склад</button>`:""}
-    <button class="btn btn-sm ${activeWarehouseId==='castings'?'':'btn-dark'}" onclick="activeWarehouseId='castings';renderStock()" style="background:${activeWarehouseId==='castings'?'#7c3aed':''}">🏭 Залитые изделия</button>
-    <button class="btn btn-sm ${activeWarehouseId==='defects'?'':'btn-dark'}" onclick="activeWarehouseId='defects';renderStock()" style="background:${activeWarehouseId==='defects'?'#dc2626':''}">❌ Браки</button>
+    <button class="btn btn-sm" onclick="activeWarehouseId='castings';renderStock()" style="background:${activeWarehouseId==='castings'?'#7c3aed':'#1e2433'};color:${activeWarehouseId==='castings'?'#fff':'#8892a0'}">🏭 Залитые изделия</button>
+    <button class="btn btn-sm" onclick="activeWarehouseId='defects';renderStock()" style="background:${activeWarehouseId==='defects'?'#dc2626':'#1e2433'};color:${activeWarehouseId==='defects'?'#fff':'#8892a0'}">❌ Браки</button>
   </div>`;
+
+  // ---- Early return for CASTINGS ----
+  if(activeWarehouseId==="castings"){
+    html += `<div class="flex" style="justify-content:space-between;align-items:center;margin-bottom:12px">
+      <div style="font-weight:700;font-size:15px;color:#a78bfa">🏭 Залитые изделия</div>
+      ${canEdit?`<button class="btn" style="background:#7c3aed;font-size:13px" onclick="showCastForm=!showCastForm;renderStock()">+ Добавить</button>`:''}
+    </div>`;
+
+    if(showCastForm&&canEdit){
+      html+=`<div class="card" style="margin-bottom:12px;border-color:#7c3aed">
+        <div class="label" style="color:#a78bfa">Новая запись залитых изделий</div>
+        <div style="color:#4a5568;font-size:11px;margin-bottom:4px">Дата</div>
+        <input type="date" value="${castFormData.date}" onchange="castFormData.date=this.value" style="margin-bottom:8px"/>
+        <div style="color:#4a5568;font-size:11px;margin-bottom:4px">Изделие</div>
+        <select onchange="castFormData.item=this.value" style="margin-bottom:8px">
+          ${CAST_ITEMS.map(i=>`<option ${castFormData.item===i?"selected":""}>${i}</option>`).join("")}
+        </select>
+        <div style="color:#4a5568;font-size:11px;margin-bottom:4px">Количество (шт)</div>
+        <input type="number" placeholder="0" value="${castFormData.qty}" oninput="castFormData.qty=this.value" style="margin-bottom:8px"/>
+        <div style="color:#4a5568;font-size:11px;margin-bottom:4px">Примечание</div>
+        <input type="text" placeholder="Примечание (необязательно)" value="${castFormData.note||''}" oninput="castFormData.note=this.value" style="margin-bottom:10px"/>
+        <div class="flex">
+          <button class="btn" style="background:#7c3aed" onclick="saveCasting()">Сохранить</button>
+          <button class="btn btn-dark" onclick="showCastForm=false;renderStock()">Отмена</button>
+        </div>
+      </div>`;
+    }
+
+    const cGrouped={};
+    [...data.castings].forEach(c=>{if(!cGrouped[c.date])cGrouped[c.date]=[];cGrouped[c.date].push(c);});
+    const cDates=Object.keys(cGrouped).sort((a,b)=>b.localeCompare(a));
+    const cTotals={};
+    CAST_ITEMS.forEach(i=>cTotals[i]=0);
+    data.castings.forEach(c=>{if(cTotals[c.item]!==undefined)cTotals[c.item]+=c.qty;});
+
+    if(!cDates.length){
+      html+=`<div class="empty">Записей нет. Добавьте первую запись.</div>`;
+    } else {
+      html+=`<div class="card" style="padding:0;overflow:hidden;margin-bottom:14px;border-color:#7c3aed">
+        <div style="padding:10px 14px;border-bottom:1px solid #2a2f3e;font-weight:700;font-size:13px;color:#a78bfa">Итого залито (все время)</div>
+        <div class="table-wrap"><table>
+          <thead><tr><th style="text-align:left">Изделие</th><th>Кол-во (шт)</th></tr></thead>
+          <tbody>${CAST_ITEMS.map(item=>`<tr><td>${item}</td><td class="mono" style="color:#a78bfa;font-weight:700;text-align:right">${cTotals[item]||0}</td></tr>`).join("")}</tbody>
+        </table></div>
+      </div>`;
+      cDates.forEach(date=>{
+        html+=`<div class="card" style="margin-bottom:8px;border-left:3px solid #7c3aed">
+          <div style="font-weight:700;font-size:13px;color:#a78bfa;margin-bottom:8px">📅 ${fmtDate(date)}</div>
+          <div class="table-wrap"><table>
+            <thead><tr><th style="text-align:left">Изделие</th><th>Кол.</th><th>Примечание</th>${canEdit?'<th></th>':''}</tr></thead>
+            <tbody>${cGrouped[date].map(c=>`<tr>
+              <td>${c.item}</td><td class="mono" style="color:#a78bfa;font-weight:700;text-align:right">${c.qty}</td>
+              <td style="color:#8892a0;font-size:11px">${c.note||'—'}</td>
+              ${canEdit?`<td><button onclick="deleteCasting('${c.id}')" style="background:none;border:none;color:#f87171;cursor:pointer;font-size:14px;padding:0">✕</button></td>`:''}
+            </tr>`).join("")}</tbody>
+          </table></div>
+        </div>`;
+      });
+    }
+    html+=`<div style="position:sticky;bottom:0;padding:10px 0 4px;background:linear-gradient(to top,#0f1117 80%,transparent);margin-top:8px">
+      <button onclick="printCastings()" style="width:100%;padding:14px;font-size:15px;font-weight:700;background:#7c3aed;color:#fff;border:none;border-radius:12px;cursor:pointer;font-family:'Nunito',sans-serif">🖨 Сохранить / Распечатать PDF</button>
+    </div>`;
+    document.getElementById("page-stock").innerHTML=html;
+    return;
+  }
+
+  // ---- Early return for DEFECTS ----
+  if(activeWarehouseId==="defects"){
+    html += `<div class="flex" style="justify-content:space-between;align-items:center;margin-bottom:12px">
+      <div style="font-weight:700;font-size:15px;color:#f87171">❌ Браки</div>
+      ${canEdit?`<button class="btn" style="background:#dc2626;font-size:13px" onclick="showDefectForm=!showDefectForm;renderStock()">+ Добавить</button>`:''}
+    </div>`;
+
+    if(showDefectForm&&canEdit){
+      html+=`<div class="card" style="margin-bottom:12px;border-color:#dc2626">
+        <div class="label" style="color:#f87171">Новая запись брака</div>
+        <div style="color:#4a5568;font-size:11px;margin-bottom:4px">Дата</div>
+        <input type="date" value="${defectFormData.date}" onchange="defectFormData.date=this.value" style="margin-bottom:8px"/>
+        <div style="color:#4a5568;font-size:11px;margin-bottom:4px">Изделие</div>
+        <select onchange="defectFormData.item=this.value" style="margin-bottom:8px">
+          ${CAST_ITEMS.map(i=>`<option ${defectFormData.item===i?"selected":""}>${i}</option>`).join("")}
+        </select>
+        <div style="color:#4a5568;font-size:11px;margin-bottom:4px">Количество (шт)</div>
+        <input type="number" placeholder="0" value="${defectFormData.qty}" oninput="defectFormData.qty=this.value" style="margin-bottom:8px"/>
+        <div style="color:#4a5568;font-size:11px;margin-bottom:4px">Причина / Примечание</div>
+        <input type="text" placeholder="Причина брака" value="${defectFormData.note||''}" oninput="defectFormData.note=this.value" style="margin-bottom:10px"/>
+        <div class="flex">
+          <button class="btn" style="background:#dc2626" onclick="saveDefect()">Сохранить</button>
+          <button class="btn btn-dark" onclick="showDefectForm=false;renderStock()">Отмена</button>
+        </div>
+      </div>`;
+    }
+
+    const dGrouped={};
+    [...data.defects].forEach(c=>{if(!dGrouped[c.date])dGrouped[c.date]=[];dGrouped[c.date].push(c);});
+    const dDates=Object.keys(dGrouped).sort((a,b)=>b.localeCompare(a));
+    const dTotals={};
+    CAST_ITEMS.forEach(i=>dTotals[i]=0);
+    data.defects.forEach(c=>{if(dTotals[c.item]!==undefined)dTotals[c.item]+=c.qty;});
+    const dTotal=Object.values(dTotals).reduce((s,v)=>s+v,0);
+
+    if(!dDates.length){
+      html+=`<div class="empty">Записей нет. Браков не зафиксировано ✅</div>`;
+    } else {
+      html+=`<div class="card" style="padding:0;overflow:hidden;margin-bottom:14px;border-color:#dc2626">
+        <div style="padding:10px 14px;border-bottom:1px solid #2a2f3e;font-weight:700;font-size:13px;color:#f87171">Итого брака — ${dTotal} шт.</div>
+        <div class="table-wrap"><table>
+          <thead><tr><th style="text-align:left">Изделие</th><th>Кол-во (шт)</th></tr></thead>
+          <tbody>${CAST_ITEMS.map(item=>`<tr><td>${item}</td><td class="mono" style="color:#f87171;font-weight:700;text-align:right">${dTotals[item]||0}</td></tr>`).join("")}</tbody>
+        </table></div>
+      </div>`;
+      dDates.forEach(date=>{
+        html+=`<div class="card" style="margin-bottom:8px;border-left:3px solid #dc2626">
+          <div style="font-weight:700;font-size:13px;color:#f87171;margin-bottom:8px">📅 ${fmtDate(date)}</div>
+          <div class="table-wrap"><table>
+            <thead><tr><th style="text-align:left">Изделие</th><th>Кол.</th><th>Причина</th>${canEdit?'<th></th>':''}</tr></thead>
+            <tbody>${dGrouped[date].map(c=>`<tr>
+              <td>${c.item}</td><td class="mono" style="color:#f87171;font-weight:700;text-align:right">${c.qty}</td>
+              <td style="color:#8892a0;font-size:11px">${c.note||'—'}</td>
+              ${canEdit?`<td><button onclick="deleteDefect('${c.id}')" style="background:none;border:none;color:#f87171;cursor:pointer;font-size:14px;padding:0">✕</button></td>`:''}
+            </tr>`).join("")}</tbody>
+          </table></div>
+        </div>`;
+      });
+    }
+    html+=`<div style="position:sticky;bottom:0;padding:10px 0 4px;background:linear-gradient(to top,#0f1117 80%,transparent);margin-top:8px">
+      <button onclick="printDefects()" style="width:100%;padding:14px;font-size:15px;font-weight:700;background:#dc2626;color:#fff;border:none;border-radius:12px;cursor:pointer;font-family:'Nunito',sans-serif">🖨 Сохранить / Распечатать PDF</button>
+    </div>`;
+    document.getElementById("page-stock").innerHTML=html;
+    return;
+  }
 
   // New warehouse form
   if(showWarehouseForm&&isAdmin){
@@ -953,175 +1085,8 @@ function renderStock(){
       🖨 Сохранить / Распечатать PDF
     </button>
   </div>`;
-  // CASTINGS VIEW
-  if(activeWarehouseId==="castings"){
-    const isLimited = currentUser.role==="limited";
-    const canEdit = isAdmin || isLimited;
-    html = `<div class="flex" style="justify-content:space-between;margin-bottom:12px">
-      <div class="section-title" style="margin-bottom:0">🏭 Залитые изделия</div>
-      ${canEdit?`<button class="btn" style="background:#7c3aed" onclick="showCastForm=!showCastForm;renderStock()">+ Добавить</button>`:''}
-    </div>`;
-    // Tabs for stock still visible
-    html += `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;overflow-x:auto">
-      <button class="btn btn-sm btn-dark" onclick="activeWarehouseId='main';renderStock()">📦 Текущий склад</button>
-      <button class="btn btn-sm btn-dark" onclick="activeWarehouseId='combined';renderStock()">🗂 Общие остатки</button>
-      ${data.warehouses.map(wh=>`<button class="btn btn-sm btn-dark" onclick="activeWarehouseId='${wh.id}';renderStock()">${wh.name}</button>`).join("")}
-      ${isAdmin?`<button class="btn btn-sm btn-dark" onclick="showWarehouseForm=!showWarehouseForm;renderStock()" style="border:1px dashed #2a2f3e">+ Новый склад</button>`:""}
-      <button class="btn btn-sm" style="background:#7c3aed">🏭 Залитые изделия</button>
-      <button class="btn btn-sm btn-dark" onclick="activeWarehouseId='defects';renderStock()">❌ Браки</button>
-    </div>`;
 
-    if(showCastForm&&canEdit){
-      html+=`<div class="card" style="margin-bottom:12px;border-color:#7c3aed">
-        <div class="label" style="color:#a78bfa">Новая запись залитых изделий</div>
-        <div style="color:#4a5568;font-size:11px;margin-bottom:4px">Дата</div>
-        <input type="date" value="${castFormData.date}" onchange="castFormData.date=this.value" style="margin-bottom:8px"/>
-        <div style="color:#4a5568;font-size:11px;margin-bottom:4px">Изделие</div>
-        <select onchange="castFormData.item=this.value" style="margin-bottom:8px">
-          ${CAST_ITEMS.map(i=>`<option ${castFormData.item===i?"selected":""}>${i}</option>`).join("")}
-        </select>
-        <div style="color:#4a5568;font-size:11px;margin-bottom:4px">Количество (шт)</div>
-        <input type="number" placeholder="0" value="${castFormData.qty}" oninput="castFormData.qty=this.value" style="margin-bottom:8px"/>
-        <div style="color:#4a5568;font-size:11px;margin-bottom:4px">Примечание</div>
-        <input type="text" placeholder="Примечание (необязательно)" value="${castFormData.note||''}" oninput="castFormData.note=this.value" style="margin-bottom:10px"/>
-        <div class="flex">
-          <button class="btn" style="background:#7c3aed" onclick="saveCasting()">Сохранить</button>
-          <button class="btn btn-dark" onclick="showCastForm=false;renderStock()">Отмена</button>
-        </div>
-      </div>`;
-    }
 
-    // Group castings by date
-    const grouped={};
-    [...data.castings].forEach(c=>{
-      if(!grouped[c.date])grouped[c.date]=[];
-      grouped[c.date].push(c);
-    });
-    const sortedDates=Object.keys(grouped).sort((a,b)=>b.localeCompare(a));
-
-    if(!sortedDates.length){
-      html+=`<div class="empty">Записей нет. Добавьте первую запись.</div>`;
-    } else {
-      // Summary table
-      const totals={};
-      CAST_ITEMS.forEach(i=>totals[i]=0);
-      data.castings.forEach(c=>{if(totals[c.item]!==undefined)totals[c.item]+=c.qty;});
-      html+=`<div class="card" style="padding:0;overflow:hidden;margin-bottom:14px;border-color:#7c3aed">
-        <div style="padding:10px 14px;border-bottom:1px solid #2a2f3e;font-weight:700;font-size:13px;color:#a78bfa">Итого залито (все время)</div>
-        <div class="table-wrap"><table>
-          <thead><tr><th style="text-align:left">Изделие</th><th>Количество (шт)</th></tr></thead>
-          <tbody>${CAST_ITEMS.map(item=>`<tr><td>${item}</td><td class="mono" style="color:#a78bfa;font-weight:700;text-align:right">${totals[item]||0}</td></tr>`).join("")}</tbody>
-        </table></div>
-      </div>`;
-
-      // By date
-      sortedDates.forEach(date=>{
-        const rows=grouped[date];
-        html+=`<div class="card" style="margin-bottom:8px;border-left:3px solid #7c3aed">
-          <div style="font-weight:700;font-size:13px;color:#a78bfa;margin-bottom:8px">📅 ${fmtDate(date)}</div>
-          <div class="table-wrap"><table>
-            <thead><tr><th style="text-align:left">Изделие</th><th>Кол.</th><th>Примечание</th>${canEdit?'<th></th>':''}</tr></thead>
-            <tbody>${rows.map(c=>`<tr>
-              <td>${c.item}</td>
-              <td class="mono" style="color:#a78bfa;font-weight:700;text-align:right">${c.qty}</td>
-              <td style="color:#8892a0;font-size:11px">${c.note||'—'}</td>
-              ${canEdit?`<td><button onclick="deleteCasting('${c.id}')" style="background:none;border:none;color:#f87171;cursor:pointer;font-size:13px">✕</button></td>`:''}
-            </tr>`).join("")}</tbody>
-          </table></div>
-        </div>`;
-      });
-    }
-
-    html += `<div style="position:sticky;bottom:0;padding:10px 0 4px;background:linear-gradient(to top,#0f1117 80%,transparent);margin-top:8px">
-      <button onclick="printCastings()" style="width:100%;padding:14px;font-size:15px;font-weight:700;background:#7c3aed;color:#fff;border:none;border-radius:12px;cursor:pointer;font-family:'Nunito',sans-serif;box-shadow:0 4px 16px rgba(0,0,0,0.4)">
-        🖨 Сохранить / Распечатать PDF
-      </button>
-    </div>`;
-
-    document.getElementById("page-stock").innerHTML=html;
-    return;
-  }
-
-  // ---- DEFECTS TAB ----
-  if(activeWarehouseId==="defects"){
-    html = `<div class="flex" style="justify-content:space-between;margin-bottom:12px">
-      <div class="section-title" style="margin-bottom:0">❌ Браки</div>
-      ${isAdmin?`<button class="btn" style="background:#dc2626" onclick="showDefectForm=!showDefectForm;renderStock()">+ Добавить</button>`:''}
-    </div>`;
-    html += `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;overflow-x:auto">
-      <button class="btn btn-sm btn-dark" onclick="activeWarehouseId='main';renderStock()">📦 Текущий склад</button>
-      <button class="btn btn-sm btn-dark" onclick="activeWarehouseId='combined';renderStock()">🗂 Общие остатки</button>
-      ${data.warehouses.map(wh=>`<button class="btn btn-sm btn-dark" onclick="activeWarehouseId='${wh.id}';renderStock()">${wh.name}</button>`).join("")}
-      ${isAdmin?`<button class="btn btn-sm btn-dark" onclick="showWarehouseForm=!showWarehouseForm;renderStock()" style="border:1px dashed #2a2f3e">+ Новый склад</button>`:""}
-      <button class="btn btn-sm btn-dark" onclick="activeWarehouseId='castings';renderStock()">🏭 Залитые изделия</button>
-      <button class="btn btn-sm" style="background:#dc2626">❌ Браки</button>
-    </div>`;
-
-    if(showDefectForm&&isAdmin){
-      html+=`<div class="card" style="margin-bottom:12px;border-color:#dc2626">
-        <div class="label" style="color:#f87171">Новая запись брака</div>
-        <div style="color:#4a5568;font-size:11px;margin-bottom:4px">Дата</div>
-        <input type="date" value="${defectFormData.date}" onchange="defectFormData.date=this.value" style="margin-bottom:8px"/>
-        <div style="color:#4a5568;font-size:11px;margin-bottom:4px">Изделие</div>
-        <select onchange="defectFormData.item=this.value" style="margin-bottom:8px">
-          ${CAST_ITEMS.map(i=>`<option ${defectFormData.item===i?"selected":""}>${i}</option>`).join("")}
-        </select>
-        <div style="color:#4a5568;font-size:11px;margin-bottom:4px">Количество (шт)</div>
-        <input type="number" placeholder="0" value="${defectFormData.qty}" oninput="defectFormData.qty=this.value" style="margin-bottom:8px"/>
-        <div style="color:#4a5568;font-size:11px;margin-bottom:4px">Причина / Примечание</div>
-        <input type="text" placeholder="Причина брака" value="${defectFormData.note||''}" oninput="defectFormData.note=this.value" style="margin-bottom:10px"/>
-        <div class="flex">
-          <button class="btn" style="background:#dc2626" onclick="saveDefect()">Сохранить</button>
-          <button class="btn btn-dark" onclick="showDefectForm=false;renderStock()">Отмена</button>
-        </div>
-      </div>`;
-    }
-
-    const dGrouped={};
-    [...data.defects].forEach(c=>{if(!dGrouped[c.date])dGrouped[c.date]=[];dGrouped[c.date].push(c);});
-    const dSortedDates=Object.keys(dGrouped).sort((a,b)=>b.localeCompare(a));
-    const dTotals={};
-    CAST_ITEMS.forEach(i=>dTotals[i]=0);
-    data.defects.forEach(c=>{if(dTotals[c.item]!==undefined)dTotals[c.item]+=c.qty;});
-    const dTotalAll=Object.values(dTotals).reduce((s,v)=>s+v,0);
-
-    if(!dSortedDates.length){
-      html+=`<div class="empty">Записей нет. Браков не зафиксировано. ✅</div>`;
-    } else {
-      html+=`<div class="card" style="padding:0;overflow:hidden;margin-bottom:14px;border-color:#dc2626">
-        <div style="padding:10px 14px;border-bottom:1px solid #2a2f3e;font-weight:700;font-size:13px;color:#f87171">Итого брака — ${dTotalAll} шт.</div>
-        <div class="table-wrap"><table>
-          <thead><tr><th style="text-align:left">Изделие</th><th>Количество (шт)</th></tr></thead>
-          <tbody>${CAST_ITEMS.map(item=>`<tr><td>${item}</td><td class="mono" style="color:#f87171;font-weight:700;text-align:right">${dTotals[item]||0}</td></tr>`).join("")}</tbody>
-        </table></div>
-      </div>`;
-      dSortedDates.forEach(date=>{
-        const rows=dGrouped[date];
-        html+=`<div class="card" style="margin-bottom:8px;border-left:3px solid #dc2626">
-          <div style="font-weight:700;font-size:13px;color:#f87171;margin-bottom:8px">📅 ${fmtDate(date)}</div>
-          <div class="table-wrap"><table>
-            <thead><tr><th style="text-align:left">Изделие</th><th>Кол.</th><th>Причина</th>${isAdmin?'<th></th>':''}</tr></thead>
-            <tbody>${rows.map(c=>`<tr>
-              <td>${c.item}</td>
-              <td class="mono" style="color:#f87171;font-weight:700;text-align:right">${c.qty}</td>
-              <td style="color:#8892a0;font-size:11px">${c.note||'—'}</td>
-              ${isAdmin?`<td><button onclick="deleteDefect('${c.id}')" style="background:none;border:none;color:#f87171;cursor:pointer;font-size:13px">✕</button></td>`:''}
-            </tr>`).join("")}</tbody>
-          </table></div>
-        </div>`;
-      });
-    }
-    html+=`<div style="position:sticky;bottom:0;padding:10px 0 4px;background:linear-gradient(to top,#0f1117 80%,transparent);margin-top:8px">
-      <button onclick="printDefects()" style="width:100%;padding:14px;font-size:15px;font-weight:700;background:#dc2626;color:#fff;border:none;border-radius:12px;cursor:pointer;font-family:'Nunito',sans-serif;box-shadow:0 4px 16px rgba(0,0,0,0.4)">
-        🖨 Сохранить / Распечатать PDF
-      </button>
-    </div>`;
-    document.getElementById("page-stock").innerHTML=html;
-    return;
-  }
-
-  document.getElementById("page-stock").innerHTML=html;
-}
 
 // ============ DEFECTS VIEW ============
 async function saveDefect(){
