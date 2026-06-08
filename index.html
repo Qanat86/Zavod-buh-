@@ -804,6 +804,7 @@ let showDefectForm=false;
 let defectFormData={date:today(),item:CAST_ITEMS[0],qty:"",note:""};
 
 function renderStock(){
+  if(!currentUser) return;
   const isAdmin=currentUser.role==="admin";
   const canEdit = currentUser.role==="admin" || currentUser.role==="limited";
   
@@ -828,7 +829,7 @@ function renderStock(){
     combinedBal[i].balance+=mainBal[i].balance;
   });
   // Add warehouses
-  data.warehouses.forEach(wh=>{
+  (data.warehouses||[]).forEach(wh=>{
     (wh.items||[]).forEach(wi=>{
       if(!combinedBal[wi.item])combinedBal[wi.item]={produced:0,shipped:0,balance:0};
       combinedBal[wi.item].balance+=wi.qty;
@@ -847,7 +848,7 @@ function renderStock(){
   html+=`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;overflow-x:auto">
     <button class="btn btn-sm ${activeWarehouseId==='main'?'':'btn-dark'}" onclick="activeWarehouseId='main';renderStock()">📦 Текущий склад</button>
     <button class="btn btn-sm ${activeWarehouseId==='combined'?'':'btn-dark'}" onclick="activeWarehouseId='combined';renderStock()">🗂 Общие остатки</button>
-    ${data.warehouses.map(wh=>`<button class="btn btn-sm ${activeWarehouseId===wh.id?'':'btn-dark'}" onclick="activeWarehouseId='${wh.id}';renderStock()">${wh.name}</button>`).join("")}
+    ${(data.warehouses||[]).map(wh=>`<button class="btn btn-sm ${activeWarehouseId===wh.id?'':'btn-dark'}" onclick="activeWarehouseId='${wh.id}';renderStock()">${wh.name}</button>`).join("")}
     ${isAdmin?`<button class="btn btn-sm btn-dark" onclick="showWarehouseForm=!showWarehouseForm;renderStock()" style="border:1px dashed #2a2f3e">+ Новый склад</button>`:""}
     <button class="btn btn-sm" onclick="activeWarehouseId='castings';renderStock()" style="background:${activeWarehouseId==='castings'?'#7c3aed':'#1e2433'};color:${activeWarehouseId==='castings'?'#fff':'#8892a0'}">🏭 Залитые изделия</button>
     <button class="btn btn-sm" onclick="activeWarehouseId='defects';renderStock()" style="background:${activeWarehouseId==='defects'?'#dc2626':'#1e2433'};color:${activeWarehouseId==='defects'?'#fff':'#8892a0'}">❌ Браки</button>
@@ -1215,6 +1216,7 @@ function printCastings(){
 }
 
 function renderStockTable(title, bal, showHistory){
+  if(!bal) bal={};
   let html=`<div class="card" style="padding:0;overflow:hidden;margin-bottom:14px">
     <div style="padding:10px 14px;border-bottom:1px solid #2a2f3e;font-weight:700;font-size:13px">${title} — Остатки</div>
     <div class="table-wrap"><table>
