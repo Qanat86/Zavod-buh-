@@ -378,6 +378,12 @@ function renderOrders() {
   });
 
   if (!filtered.length) html += `<div class="empty">Заказов нет</div>`;
+
+  html += `<div style="position:sticky;bottom:0;padding:10px 0 4px;background:linear-gradient(to top,#0f1117 80%,transparent);margin-top:8px">
+    <button onclick="printAllOrders()" style="width:100%;padding:14px;font-size:15px;font-weight:700;background:#1e3a5f;color:#fff;border:none;border-radius:12px;cursor:pointer;font-family:'Nunito',sans-serif;box-shadow:0 4px 16px rgba(0,0,0,0.4)">
+      🖨 Сохранить / Распечатать PDF
+    </button>
+  </div>`;
   document.getElementById("page-orders").innerHTML = html;
 }
 
@@ -556,6 +562,43 @@ async function savePayment(orderId) {
   showPaymentOrderId=null;
   payFormData={type:"Аванс",amount:"",date:today(),time:nowTime(),editIdx:null};
 }
+function printAllOrders() {
+  const orders = [...data.orders].sort((a,b)=>b.num-a.num);
+  if(!orders.length){alert("Заказов нет");return;}
+  let rows = "";
+  orders.forEach(o=>{
+    const paid=getOrderPaid(o), remaining=o.total-paid;
+    rows+=`<tr>
+      <td>${o.num}</td>
+      <td>${o.client}</td>
+      <td>${fmtDate(o.date)}</td>
+      <td>${o.category}</td>
+      <td align="right">${fmt(o.total)} ₸</td>
+      <td align="right" style="color:green">${fmt(paid)} ₸</td>
+      <td align="right" style="color:${remaining>0?'red':'green'}">${fmt(remaining)} ₸</td>
+      <td>${o.withVat?"С НДС":"Без НДС"}</td>
+      <td>${remaining<=0?"✓ Оплачен":"Ожидает"}</td>
+    </tr>`;
+  });
+  const totalSum=orders.reduce((s,o)=>s+o.total,0);
+  const totalPaid=orders.reduce((s,o)=>s+getOrderPaid(o),0);
+  const totalRemain=totalSum-totalPaid;
+  const html=`<html><head><title>Все заказы</title>
+  <style>body{font-family:Arial;padding:20px;font-size:12px}h1{font-size:18px}
+  table{width:100%;border-collapse:collapse}th{background:#f0f4ff;padding:6px 8px;text-align:left;border:1px solid #ddd;font-size:11px}
+  td{padding:6px 8px;border:1px solid #ddd}tr:nth-child(even){background:#fafafa}
+  .total{font-weight:bold;font-size:14px;margin-top:12px}
+  .footer{margin-top:20px;color:#aaa;font-size:11px;border-top:1px solid #eee;padding-top:8px}</style></head>
+  <body><h1>⚙ ЗАВОД БУХ — Все заказы</h1>
+  <p style="color:#888;font-size:12px">Дата: ${new Date().toLocaleDateString("ru-RU")}</p>
+  <table><thead><tr><th>#</th><th>Клиент</th><th>Дата</th><th>Категория</th><th>Итого</th><th>Оплачено</th><th>Остаток</th><th>НДС</th><th>Статус</th></tr></thead>
+  <tbody>${rows}</tbody></table>
+  <div class="total">Итого заказов: ${orders.length} шт. | Сумма: ${fmt(totalSum)} ₸ | Оплачено: ${fmt(totalPaid)} ₸ | Остаток: ${fmt(totalRemain)} ₸</div>
+  <div class="footer">Сформировано: ${new Date().toLocaleDateString("ru-RU")} ${new Date().toLocaleTimeString("ru-RU")}</div>
+  </body></html>`;
+  const w=window.open("","_blank");w.document.write(html);w.document.close();setTimeout(()=>w.print(),500);
+}
+
 function printOrder(id) {
   const order = data.orders.find(x=>x.id===id);
   const paid=getOrderPaid(order), remaining=order.total-paid;
@@ -656,7 +699,50 @@ function renderTransactions() {
     </div>`;
   });
   if(!filtered.length)html+=`<div class="empty">Транзакций нет</div>`;
+
+  html += `<div style="position:sticky;bottom:0;padding:10px 0 4px;background:linear-gradient(to top,#0f1117 80%,transparent);margin-top:8px">
+    <button onclick="printTransactions()" style="width:100%;padding:14px;font-size:15px;font-weight:700;background:#1e3a5f;color:#fff;border:none;border-radius:12px;cursor:pointer;font-family:'Nunito',sans-serif;box-shadow:0 4px 16px rgba(0,0,0,0.4)">
+      🖨 Сохранить / Распечатать PDF
+    </button>
+  </div>`;
   document.getElementById("page-transactions").innerHTML=html;
+}
+function printTransactions(){
+  const filtered=data.transactions.filter(t=>{
+    if(txFilter.type!=="all"&&t.type!==txFilter.type)return false;
+    if(txFilter.account!=="all"&&t.account!==txFilter.account)return false;
+    if(txFilter.from&&t.date<txFilter.from)return false;
+    if(txFilter.to&&t.date>txFilter.to)return false;
+    return true;
+  }).sort((a,b)=>b.date.localeCompare(a.date));
+  if(!filtered.length){alert("Нет данных для печати");return;}
+  const typeLabels={income:"Доход",expense:"Расход",dividend:"Дивиденд"};
+  let income=0,expense=0,dividend=0;
+  const rows=filtered.map(t=>{
+    if(t.type==="income")income+=t.amount;
+    else if(t.type==="expense")expense+=t.amount;
+    else dividend+=t.amount;
+    return`<tr><td>${fmtDate(t.date)}</td><td>${typeLabels[t.type]}</td><td>${t.category}</td><td>${ACCOUNTS.find(a=>a.id===t.account)?.name||t.account}</td><td align="right" style="font-weight:bold;color:${t.type==="income"?"green":t.type==="expense"?"red":"purple"}">${t.type==="income"?"+":"-"}${fmt(t.amount)} ₸</td><td>${t.note||"-"}</td></tr>`;
+  }).join("");
+  const html=`<html><head><title>Транзакции</title>
+  <style>body{font-family:Arial;padding:20px;font-size:12px}h1{font-size:18px}
+  table{width:100%;border-collapse:collapse}th{background:#f0f4ff;padding:6px 8px;text-align:left;border:1px solid #ddd}
+  td{padding:6px 8px;border:1px solid #ddd}tr:nth-child(even){background:#fafafa}
+  .summary{margin:12px 0;font-size:13px}
+  .footer{margin-top:20px;color:#aaa;font-size:11px;border-top:1px solid #eee;padding-top:8px}</style></head>
+  <body><h1>⚙ ЗАВОД БУХ — Транзакции</h1>
+  <p style="color:#888;font-size:12px">Дата: ${new Date().toLocaleDateString("ru-RU")}</p>
+  <div class="summary">
+    <span style="color:green">Доходы: ${fmt(income)} ₸</span> &nbsp;|&nbsp;
+    <span style="color:red">Расходы: ${fmt(expense)} ₸</span> &nbsp;|&nbsp;
+    <span style="color:purple">Дивиденды: ${fmt(dividend)} ₸</span> &nbsp;|&nbsp;
+    <b>Чистый поток: ${fmt(income-expense-dividend)} ₸</b>
+  </div>
+  <table><thead><tr><th>Дата</th><th>Тип</th><th>Категория</th><th>Счёт</th><th>Сумма</th><th>Примечание</th></tr></thead>
+  <tbody>${rows}</tbody></table>
+  <div class="footer">Сформировано: ${new Date().toLocaleDateString("ru-RU")} ${new Date().toLocaleTimeString("ru-RU")}</div>
+  </body></html>`;
+  const w=window.open("","_blank");w.document.write(html);w.document.close();setTimeout(()=>w.print(),500);
 }
 function startNewTx(){txFormData={type:"income",account:"cash",category:INCOME_CAT[0],amount:"",date:today(),note:""};editTxId=null;showTxForm=true;renderTransactions();}
 function setTxType(t){txFormData.type=t;txFormData.category=t==="income"?INCOME_CAT[0]:t==="expense"?EXPENSE_CAT[0]:DIVIDEND_CAT[0];renderTransactions();}
@@ -824,6 +910,18 @@ function renderStock(){
     html+=`<div style="margin-top:12px"><button class="btn" style="width:100%;background:#1e3a5f" onclick="printStockReport('${wh.id}')">🖨 Распечатать остатки ${wh.name}</button></div>`;
   }
 
+
+  html += `<div style="position:sticky;bottom:0;padding:10px 0 4px;background:linear-gradient(to top,#0f1117 80%,transparent);margin-top:8px">
+    <button onclick="printStockReport(activeWarehouseId)" style="width:100%;padding:14px;font-size:15px;font-weight:700;background:#1e3a5f;color:#fff;border:none;border-radius:12px;cursor:pointer;font-family:'Nunito',sans-serif;box-shadow:0 4px 16px rgba(0,0,0,0.4)">
+      🖨 Сохранить / Распечатать PDF
+    </button>
+  </div>`;
+
+  html += `<div style="position:sticky;bottom:0;padding:10px 0 4px;background:linear-gradient(to top,#0f1117 80%,transparent);margin-top:8px">
+    <button onclick="printStockReport(activeWarehouseId)" style="width:100%;padding:14px;font-size:15px;font-weight:700;background:#1e3a5f;color:#fff;border:none;border-radius:12px;cursor:pointer;font-family:'Nunito',sans-serif;box-shadow:0 4px 16px rgba(0,0,0,0.4)">
+      🖨 Сохранить / Распечатать PDF
+    </button>
+  </div>`;
   document.getElementById("page-stock").innerHTML=html;
 }
 
@@ -999,6 +1097,12 @@ function renderDebts(){
   html+=`<div class="label" style="margin-top:16px">Кредиторская (мы должны)</div>`;
   payable.forEach(d=>html+=debtCard(d));
   if(!payable.length)html+=`<div class="empty">Нет записей</div>`;
+
+  html += `<div style="position:sticky;bottom:0;padding:10px 0 4px;background:linear-gradient(to top,#0f1117 80%,transparent);margin-top:8px">
+    <button onclick="printDebts()" style="width:100%;padding:14px;font-size:15px;font-weight:700;background:#1e3a5f;color:#fff;border:none;border-radius:12px;cursor:pointer;font-family:'Nunito',sans-serif;box-shadow:0 4px 16px rgba(0,0,0,0.4)">
+      🖨 Сохранить / Распечатать PDF
+    </button>
+  </div>`;
   document.getElementById("page-debts").innerHTML=html;
 }
 function startNewDebt(){debtFormData={type:"receivable",counterparty:"",amount:"",dueDate:"",date:today(),status:"open",note:""};editDebtId=null;showDebtForm=true;renderDebts();}
@@ -1018,6 +1122,33 @@ async function toggleDebt(id){
   await db.collection("debts").doc(id).update({status:d.status==="open"?"closed":"open"});
 }
 async function delDebt(id){if(!confirm("Удалить?"))return;await db.collection("debts").doc(id).delete();}
+
+function printDebts(){
+  const receivable=data.debts.filter(d=>d.type==="receivable");
+  const payable=data.debts.filter(d=>d.type==="payable");
+  const totalR=receivable.filter(d=>d.status==="open").reduce((s,d)=>s+d.amount,0);
+  const totalP=payable.filter(d=>d.status==="open").reduce((s,d)=>s+d.amount,0);
+  const debtRows=(list)=>list.map(d=>`<tr><td>${d.counterparty}</td><td align="right" style="font-weight:bold">${fmt(d.amount)} ₸</td><td>${fmtDate(d.date)}</td><td>${d.dueDate?fmtDate(d.dueDate):"-"}</td><td>${d.status==="open"?"Открыто":"Закрыто"}</td><td>${d.note||"-"}</td></tr>`).join("");
+  const html=`<html><head><title>Задолженности</title>
+  <style>body{font-family:Arial;padding:20px;font-size:12px}h1{font-size:18px}h2{font-size:14px;margin-top:20px}
+  table{width:100%;border-collapse:collapse;margin-bottom:12px}th{background:#f0f4ff;padding:6px 8px;text-align:left;border:1px solid #ddd}
+  td{padding:6px 8px;border:1px solid #ddd}tr:nth-child(even){background:#fafafa}
+  .total{font-weight:bold;margin:8px 0}
+  .footer{margin-top:20px;color:#aaa;font-size:11px;border-top:1px solid #eee;padding-top:8px}</style></head>
+  <body><h1>⚙ ЗАВОД БУХ — Задолженности</h1>
+  <p style="color:#888;font-size:12px">Дата: ${new Date().toLocaleDateString("ru-RU")}</p>
+  <h2>Дебиторская задолженность (нам должны)</h2>
+  <div class="total">Итого открытых: ${fmt(totalR)} ₸</div>
+  <table><thead><tr><th>Контрагент</th><th>Сумма</th><th>Дата</th><th>Срок</th><th>Статус</th><th>Примечание</th></tr></thead>
+  <tbody>${debtRows(receivable)}</tbody></table>
+  <h2>Кредиторская задолженность (мы должны)</h2>
+  <div class="total">Итого открытых: ${fmt(totalP)} ₸</div>
+  <table><thead><tr><th>Контрагент</th><th>Сумма</th><th>Дата</th><th>Срок</th><th>Статус</th><th>Примечание</th></tr></thead>
+  <tbody>${debtRows(payable)}</tbody></table>
+  <div class="footer">Сформировано: ${new Date().toLocaleDateString("ru-RU")} ${new Date().toLocaleTimeString("ru-RU")}</div>
+  </body></html>`;
+  const w=window.open("","_blank");w.document.write(html);w.document.close();setTimeout(()=>w.print(),500);
+}
 
 // ============ REPORTS ============
 let reportType="cashflow";
@@ -1143,6 +1274,12 @@ function renderReports(){
   }
   html += `<div style="margin-top:20px">
     <button class="btn" style="width:100%;padding:14px;font-size:15px;background:#1e3a5f" onclick="printReport('${reportType}')">🖨 Распечатать / Сохранить PDF</button>
+  </div>`;
+
+  html += `<div style="position:sticky;bottom:0;padding:10px 0 4px;background:linear-gradient(to top,#0f1117 80%,transparent);margin-top:8px">
+    <button onclick="printReport(reportType)" style="width:100%;padding:14px;font-size:15px;font-weight:700;background:#1e3a5f;color:#fff;border:none;border-radius:12px;cursor:pointer;font-family:'Nunito',sans-serif;box-shadow:0 4px 16px rgba(0,0,0,0.4)">
+      🖨 Сохранить / Распечатать PDF
+    </button>
   </div>`;
   document.getElementById("page-reports").innerHTML=html;
 }
