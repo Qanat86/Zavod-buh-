@@ -142,7 +142,8 @@ const db = firebase.firestore();
 const USERS = [
   {id:1,name:"Администратор",login:"admin",password:"zavodbuh@5574",role:"admin"},
   {id:2,name:"Жоке",login:"Joke",password:"joke@1951",role:"viewer"},
-  {id:3,name:"Садулла",login:"Sadulla",password:"1982",role:"viewer"},
+  {id:3,name:"Садулла",login:"Sadulla",password:"140982",role:"viewer"},
+  {id:4,name:"Ернур",login:"Ernur",password:"4001",role:"limited"},
 ];
 const ACCOUNTS = [{id:"cash",name:"Наличка",group:"Касса"},{id:"kaspi",name:"Kaspi",group:"Касса"},{id:"rbk",name:"RBK Bank",group:"Касса"}];
 const INCOME_CAT = ["Плиты перекрытия","Кольца","Крышка колодца","Лотки","ФБС блоки","Металлолом","КСЕЛЛ"];
@@ -163,7 +164,7 @@ const esc = s => String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replac
 let currentUser = null;
 let currentPage = "dashboard";
 let unsubs = [];
-let data = {orders:[], transactions:[], stock:[], debts:[], warehouses:[], castings:[], nextOrderNum:1};
+let data = {orders:[], transactions:[], stock:[], debts:[], warehouses:[], castings:[], defects:[], nextOrderNum:1};
 
 // ============ AUTH ============
 function doLogin() {
@@ -184,6 +185,23 @@ function doLogin() {
     err.style.display = "block";
   }
 }
+function updateNavVisibility() {
+  if(!currentUser) return;
+  const role = currentUser.role;
+  const hiddenForLimited = ["nav-dashboard","nav-transactions","nav-debts","nav-reports"];
+  if(role === "limited") {
+    hiddenForLimited.forEach(id => {
+      const el = document.getElementById(id);
+      if(el) el.style.display = "none";
+    });
+  } else {
+    hiddenForLimited.forEach(id => {
+      const el = document.getElementById(id);
+      if(el) el.style.display = "";
+    });
+  }
+}
+
 function doLogout() {
   sessionStorage.removeItem("buh_user");
   unsubs.forEach(u => u());
@@ -228,14 +246,22 @@ function startListeners() {
     data.castings = snap.docs.map(d => ({id:d.id,...d.data()}));
     if (currentPage === "stock") renderStock();
   }));
+  unsubs.push(db.collection("defects").onSnapshot(snap => {
+    data.defects = snap.docs.map(d => ({id:d.id,...d.data()}));
+    if (currentPage === "stock") renderStock();
+  }));
 }
 
 function showPage(pg) {
+  if(currentUser&&currentUser.role==="limited"&&!["orders","stock"].includes(pg)) pg="orders";
   document.querySelectorAll(".page").forEach(p => p.classList.remove("active"));
   document.querySelectorAll(".nav-btn").forEach(b => b.classList.remove("active"));
-  document.getElementById("page-"+pg).classList.add("active");
-  document.getElementById("nav-"+pg).classList.add("active");
+  const pageEl = document.getElementById("page-"+pg);
+  const navEl = document.getElementById("nav-"+pg);
+  if(pageEl) pageEl.classList.add("active");
+  if(navEl) navEl.classList.add("active");
   currentPage = pg;
+  updateNavVisibility();
   if (pg==="dashboard") renderDashboard();
   if (pg==="orders") renderOrders();
   if (pg==="transactions") renderTransactions();
@@ -774,6 +800,8 @@ let showWarehouseStockForm=false;
 let warehouseStockForm={warehouseId:"",item:STOCK_ITEMS[0],qty:"",note:""};
 let showCastForm=false;
 let castFormData={date:today(),item:CAST_ITEMS[0],qty:"",note:""};
+let showDefectForm=false;
+let defectFormData={date:today(),item:CAST_ITEMS[0],qty:"",note:""};
 
 function renderStock(){
   const isAdmin=currentUser.role==="admin";
@@ -821,6 +849,7 @@ function renderStock(){
     ${data.warehouses.map(wh=>`<button class="btn btn-sm ${activeWarehouseId===wh.id?'':'btn-dark'}" onclick="activeWarehouseId='${wh.id}';renderStock()">${wh.name}</button>`).join("")}
     ${isAdmin?`<button class="btn btn-sm btn-dark" onclick="showWarehouseForm=!showWarehouseForm;renderStock()" style="border:1px dashed #2a2f3e">+ Новый склад</button>`:""}
     <button class="btn btn-sm ${activeWarehouseId==='castings'?'':'btn-dark'}" onclick="activeWarehouseId='castings';renderStock()" style="background:${activeWarehouseId==='castings'?'#7c3aed':''}">🏭 Залитые изделия</button>
+    <button class="btn btn-sm ${activeWarehouseId==='defects'?'':'btn-dark'}" onclick="activeWarehouseId='defects';renderStock()" style="background:${activeWarehouseId==='defects'?'#dc2626':''}">❌ Браки</button>
   </div>`;
 
   // New warehouse form
@@ -939,6 +968,7 @@ function renderStock(){
       ${data.warehouses.map(wh=>`<button class="btn btn-sm btn-dark" onclick="activeWarehouseId='${wh.id}';renderStock()">${wh.name}</button>`).join("")}
       ${isAdmin?`<button class="btn btn-sm btn-dark" onclick="showWarehouseForm=!showWarehouseForm;renderStock()" style="border:1px dashed #2a2f3e">+ Новый склад</button>`:""}
       <button class="btn btn-sm" style="background:#7c3aed">🏭 Залитые изделия</button>
+      <button class="btn btn-sm btn-dark" onclick="activeWarehouseId='defects';renderStock()">❌ Браки</button>
     </div>`;
 
     if(showCastForm&&canEdit){
@@ -1012,7 +1042,148 @@ function renderStock(){
     return;
   }
 
+  // ---- DEFECTS TAB ----
+  if(activeWarehouseId==="defects"){
+    html = `<div class="flex" style="justify-content:space-between;margin-bottom:12px">
+      <div class="section-title" style="margin-bottom:0">❌ Браки</div>
+      ${isAdmin?`<button class="btn" style="background:#dc2626" onclick="showDefectForm=!showDefectForm;renderStock()">+ Добавить</button>`:''}
+    </div>`;
+    html += `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;overflow-x:auto">
+      <button class="btn btn-sm btn-dark" onclick="activeWarehouseId='main';renderStock()">📦 Текущий склад</button>
+      <button class="btn btn-sm btn-dark" onclick="activeWarehouseId='combined';renderStock()">🗂 Общие остатки</button>
+      ${data.warehouses.map(wh=>`<button class="btn btn-sm btn-dark" onclick="activeWarehouseId='${wh.id}';renderStock()">${wh.name}</button>`).join("")}
+      ${isAdmin?`<button class="btn btn-sm btn-dark" onclick="showWarehouseForm=!showWarehouseForm;renderStock()" style="border:1px dashed #2a2f3e">+ Новый склад</button>`:""}
+      <button class="btn btn-sm btn-dark" onclick="activeWarehouseId='castings';renderStock()">🏭 Залитые изделия</button>
+      <button class="btn btn-sm" style="background:#dc2626">❌ Браки</button>
+    </div>`;
+
+    if(showDefectForm&&isAdmin){
+      html+=`<div class="card" style="margin-bottom:12px;border-color:#dc2626">
+        <div class="label" style="color:#f87171">Новая запись брака</div>
+        <div style="color:#4a5568;font-size:11px;margin-bottom:4px">Дата</div>
+        <input type="date" value="${defectFormData.date}" onchange="defectFormData.date=this.value" style="margin-bottom:8px"/>
+        <div style="color:#4a5568;font-size:11px;margin-bottom:4px">Изделие</div>
+        <select onchange="defectFormData.item=this.value" style="margin-bottom:8px">
+          ${CAST_ITEMS.map(i=>`<option ${defectFormData.item===i?"selected":""}>${i}</option>`).join("")}
+        </select>
+        <div style="color:#4a5568;font-size:11px;margin-bottom:4px">Количество (шт)</div>
+        <input type="number" placeholder="0" value="${defectFormData.qty}" oninput="defectFormData.qty=this.value" style="margin-bottom:8px"/>
+        <div style="color:#4a5568;font-size:11px;margin-bottom:4px">Причина / Примечание</div>
+        <input type="text" placeholder="Причина брака" value="${defectFormData.note||''}" oninput="defectFormData.note=this.value" style="margin-bottom:10px"/>
+        <div class="flex">
+          <button class="btn" style="background:#dc2626" onclick="saveDefect()">Сохранить</button>
+          <button class="btn btn-dark" onclick="showDefectForm=false;renderStock()">Отмена</button>
+        </div>
+      </div>`;
+    }
+
+    const dGrouped={};
+    [...data.defects].forEach(c=>{if(!dGrouped[c.date])dGrouped[c.date]=[];dGrouped[c.date].push(c);});
+    const dSortedDates=Object.keys(dGrouped).sort((a,b)=>b.localeCompare(a));
+    const dTotals={};
+    CAST_ITEMS.forEach(i=>dTotals[i]=0);
+    data.defects.forEach(c=>{if(dTotals[c.item]!==undefined)dTotals[c.item]+=c.qty;});
+    const dTotalAll=Object.values(dTotals).reduce((s,v)=>s+v,0);
+
+    if(!dSortedDates.length){
+      html+=`<div class="empty">Записей нет. Браков не зафиксировано. ✅</div>`;
+    } else {
+      html+=`<div class="card" style="padding:0;overflow:hidden;margin-bottom:14px;border-color:#dc2626">
+        <div style="padding:10px 14px;border-bottom:1px solid #2a2f3e;font-weight:700;font-size:13px;color:#f87171">Итого брака — ${dTotalAll} шт.</div>
+        <div class="table-wrap"><table>
+          <thead><tr><th style="text-align:left">Изделие</th><th>Количество (шт)</th></tr></thead>
+          <tbody>${CAST_ITEMS.map(item=>`<tr><td>${item}</td><td class="mono" style="color:#f87171;font-weight:700;text-align:right">${dTotals[item]||0}</td></tr>`).join("")}</tbody>
+        </table></div>
+      </div>`;
+      dSortedDates.forEach(date=>{
+        const rows=dGrouped[date];
+        html+=`<div class="card" style="margin-bottom:8px;border-left:3px solid #dc2626">
+          <div style="font-weight:700;font-size:13px;color:#f87171;margin-bottom:8px">📅 ${fmtDate(date)}</div>
+          <div class="table-wrap"><table>
+            <thead><tr><th style="text-align:left">Изделие</th><th>Кол.</th><th>Причина</th>${isAdmin?'<th></th>':''}</tr></thead>
+            <tbody>${rows.map(c=>`<tr>
+              <td>${c.item}</td>
+              <td class="mono" style="color:#f87171;font-weight:700;text-align:right">${c.qty}</td>
+              <td style="color:#8892a0;font-size:11px">${c.note||'—'}</td>
+              ${isAdmin?`<td><button onclick="deleteDefect('${c.id}')" style="background:none;border:none;color:#f87171;cursor:pointer;font-size:13px">✕</button></td>`:''}
+            </tr>`).join("")}</tbody>
+          </table></div>
+        </div>`;
+      });
+    }
+    html+=`<div style="position:sticky;bottom:0;padding:10px 0 4px;background:linear-gradient(to top,#0f1117 80%,transparent);margin-top:8px">
+      <button onclick="printDefects()" style="width:100%;padding:14px;font-size:15px;font-weight:700;background:#dc2626;color:#fff;border:none;border-radius:12px;cursor:pointer;font-family:'Nunito',sans-serif;box-shadow:0 4px 16px rgba(0,0,0,0.4)">
+        🖨 Сохранить / Распечатать PDF
+      </button>
+    </div>`;
+    document.getElementById("page-stock").innerHTML=html;
+    return;
+  }
+
   document.getElementById("page-stock").innerHTML=html;
+}
+
+// ============ DEFECTS VIEW ============
+async function saveDefect(){
+  if(!defectFormData.qty||parseFloat(defectFormData.qty)<=0){alert("Введите количество");return;}
+  try{
+    await db.collection("defects").add({
+      date:defectFormData.date,
+      item:defectFormData.item,
+      qty:parseFloat(defectFormData.qty),
+      note:defectFormData.note||"",
+      createdAt:Date.now(),
+      createdBy:currentUser.name
+    });
+    defectFormData={date:today(),item:CAST_ITEMS[0],qty:"",note:""};
+    showDefectForm=false;
+  }catch(e){alert("Ошибка: "+e.message);}
+}
+
+async function deleteDefect(id){
+  if(!confirm("Удалить запись о браке?"))return;
+  await db.collection("defects").doc(id).delete();
+}
+
+function printDefects(){
+  const grouped={};
+  [...data.defects].forEach(c=>{
+    if(!grouped[c.date])grouped[c.date]=[];
+    grouped[c.date].push(c);
+  });
+  const sortedDates=Object.keys(grouped).sort((a,b)=>a.localeCompare(b));
+  const totals={};
+  CAST_ITEMS.forEach(i=>totals[i]=0);
+  data.defects.forEach(c=>{if(totals[c.item]!==undefined)totals[c.item]+=c.qty;});
+  const totalAll=Object.values(totals).reduce((s,v)=>s+v,0);
+
+  let rows="";
+  sortedDates.forEach(date=>{
+    grouped[date].forEach((c,i)=>{
+      rows+=`<tr ${i===0?'style="border-top:2px solid #ddd"':''}><td>${i===0?fmtDate(date):''}</td><td>${c.item}</td><td align="center" style="font-weight:bold;color:red">${c.qty}</td><td>${c.note||'—'}</td></tr>`;
+    });
+  });
+  const totalRows=CAST_ITEMS.map(item=>`<tr><td><b>${item}</b></td><td align="center" style="font-weight:bold;color:red">${totals[item]||0}</td></tr>`).join("");
+
+  const html=`<html><head><title>Браки</title>
+  <style>body{font-family:Arial;padding:20px;font-size:13px}h1{font-size:18px;margin-bottom:4px}
+  h2{font-size:14px;margin-top:20px;color:#555}
+  table{width:100%;border-collapse:collapse;margin-bottom:16px}
+  th{background:#fff0f0;padding:7px 10px;text-align:left;border:1px solid #ddd;font-size:12px}
+  td{padding:7px 10px;border:1px solid #ddd}tr:nth-child(even){background:#fafafa}
+  .footer{margin-top:24px;color:#aaa;font-size:11px;border-top:1px solid #eee;padding-top:10px}</style></head>
+  <body>
+  <h1>⚙ ЗАВОД БУХ — Браки (по датам)</h1>
+  <p style="color:#888;font-size:12px">Дата формирования: ${new Date().toLocaleDateString("ru-RU")} | Итого: ${totalAll} шт.</p>
+  <h2>По датам</h2>
+  <table><thead><tr><th>Дата</th><th>Изделие</th><th>Количество (шт)</th><th>Причина</th></tr></thead>
+  <tbody>${rows}</tbody></table>
+  <h2>Итого брака (все время)</h2>
+  <table><thead><tr><th>Изделие</th><th>Итого (шт)</th></tr></thead>
+  <tbody>${totalRows}</tbody></table>
+  <div class="footer">Сформировано: ${new Date().toLocaleDateString("ru-RU")} ${new Date().toLocaleTimeString("ru-RU")}</div>
+  </body></html>`;
+  const w=window.open("","_blank");w.document.write(html);w.document.close();setTimeout(()=>w.print(),500);
 }
 
 async function saveCasting(){
