@@ -162,7 +162,7 @@ const esc = s => String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replac
 let currentUser = null;
 let currentPage = "dashboard";
 let unsubs = [];
-let data = {orders:[], transactions:[], stock:[], debts:[], nextOrderNum:1};
+let data = {orders:[], transactions:[], stock:[], debts:[], warehouses:[], nextOrderNum:1};
 
 // ============ AUTH ============
 function doLogin() {
@@ -218,6 +218,10 @@ function startListeners() {
   }));
   unsubs.push(db.collection("meta").doc("counters").onSnapshot(snap => {
     if (snap.exists) data.nextOrderNum = snap.data().nextOrderNum || 1;
+  }));
+  unsubs.push(db.collection("warehouses").onSnapshot(snap => {
+    data.warehouses = snap.docs.map(d => ({id:d.id,...d.data()}));
+    if (currentPage === "stock") renderStock();
   }));
 }
 
@@ -672,65 +676,253 @@ async function delTx(id){if(!confirm("Удалить?"))return;await db.collecti
 // ============ STOCK ============
 let showStockForm=false;
 let stockFormData={item:STOCK_ITEMS[0],type:"produced",qty:"",date:today(),note:""};
+let activeWarehouseId="main"; // "main" = текущий основной склад, или id архивного склада
+let showWarehouseForm=false;
+let warehouseFormData={name:"",year:new Date().getFullYear(),note:""};
+let showWarehouseStockForm=false;
+let warehouseStockForm={warehouseId:"",item:STOCK_ITEMS[0],qty:"",note:""};
+
 function renderStock(){
   const isAdmin=currentUser.role==="admin";
-  const bal={};
-  STOCK_ITEMS.forEach(i=>bal[i]={produced:0,shipped:0,balance:0});
+  
+  // Compute main stock balance
+  const mainBal={};
+  STOCK_ITEMS.forEach(i=>mainBal[i]={produced:0,shipped:0,balance:0});
   data.stock.forEach(m=>{
-    if(!bal[m.item])bal[m.item]={produced:0,shipped:0,balance:0};
-    if(m.type==="produced"){bal[m.item].produced+=m.qty;bal[m.item].balance+=m.qty;}
-    else if(m.type==="shipped"){bal[m.item].shipped+=m.qty;bal[m.item].balance-=m.qty;}
-    else if(m.type==="received")bal[m.item].balance+=m.qty;
-    else if(m.type==="used")bal[m.item].balance-=m.qty;
+    if(!mainBal[m.item])mainBal[m.item]={produced:0,shipped:0,balance:0};
+    if(m.type==="produced"){mainBal[m.item].produced+=m.qty;mainBal[m.item].balance+=m.qty;}
+    else if(m.type==="shipped"){mainBal[m.item].shipped+=m.qty;mainBal[m.item].balance-=m.qty;}
+    else if(m.type==="received")mainBal[m.item].balance+=m.qty;
+    else if(m.type==="used")mainBal[m.item].balance-=m.qty;
   });
+
+  // Compute combined balance (main + all archives)
+  const combinedBal={};
+  STOCK_ITEMS.forEach(i=>combinedBal[i]={produced:0,shipped:0,balance:0});
+  // Add main
+  STOCK_ITEMS.forEach(i=>{
+    combinedBal[i].produced+=mainBal[i].produced;
+    combinedBal[i].shipped+=mainBal[i].shipped;
+    combinedBal[i].balance+=mainBal[i].balance;
+  });
+  // Add warehouses
+  data.warehouses.forEach(wh=>{
+    (wh.items||[]).forEach(wi=>{
+      if(!combinedBal[wi.item])combinedBal[wi.item]={produced:0,shipped:0,balance:0};
+      combinedBal[wi.item].balance+=wi.qty;
+    });
+  });
+
   const typeLabels={produced:"Изготовлено",shipped:"Отгружено",received:"Получено",used:"Израсходовано"};
   const typeColors={produced:"#22c55e",shipped:"#f87171",received:"#60a5fa",used:"#fbbf24"};
 
   let html=`<div class="flex" style="justify-content:space-between;margin-bottom:12px">
     <div class="section-title" style="margin-bottom:0">Склад</div>
     ${isAdmin?'<button class="btn" onclick="showStockForm=!showStockForm;renderStock()">+ Движение</button>':''}
-  </div>
-  <div class="card" style="padding:0;overflow:hidden;margin-bottom:14px">
-    <div style="padding:10px 14px;border-bottom:1px solid #2a2f3e;font-weight:700;font-size:13px">Остатки на складе</div>
-    <div class="table-wrap"><table>
-      <thead><tr><th style="text-align:left">Наименование</th><th>Изготовлено</th><th>Отгружено</th><th>Остаток</th></tr></thead>
-      <tbody>${STOCK_ITEMS.map(item=>{const b=bal[item];return`<tr><td>${item}</td><td class="mono" style="color:#22c55e">${b.produced}</td><td class="mono" style="color:#f87171">${b.shipped}</td><td class="mono" style="color:${b.balance<0?'#f87171':'#60a5fa'};font-weight:700">${b.balance}</td></tr>`;}).join("")}
-      </tbody>
-    </table></div>
   </div>`;
 
-  if(showStockForm&&isAdmin){
-    html+=`<div class="card" style="margin-bottom:12px">
-      <div class="label">Новое движение</div>
-      <select onchange="stockFormData.item=this.value" style="margin-bottom:8px">
-        ${STOCK_ITEMS.map(i=>`<option ${stockFormData.item===i?"selected":""}>${i}</option>`).join("")}
-      </select>
-      <div class="flex" style="margin-bottom:8px;flex-wrap:wrap">
-        ${Object.entries(typeLabels).map(([v,l])=>`<button class="btn btn-sm ${stockFormData.type===v?'':'btn-dark'}" onclick="stockFormData.type='${v}';renderStock()">${l}</button>`).join("")}
-      </div>
-      <div class="grid2" style="margin-bottom:8px">
-        <input type="number" placeholder="Количество" value="${stockFormData.qty}" oninput="stockFormData.qty=this.value"/>
-        <input type="date" value="${stockFormData.date}" onchange="stockFormData.date=this.value"/>
-      </div>
-      <input type="text" placeholder="Примечание" value="${esc(stockFormData.note||'')}" oninput="stockFormData.note=this.value" style="margin-bottom:8px"/>
+  // Warehouse tabs
+  html+=`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;overflow-x:auto">
+    <button class="btn btn-sm ${activeWarehouseId==='main'?'':'btn-dark'}" onclick="activeWarehouseId='main';renderStock()">📦 Текущий склад</button>
+    <button class="btn btn-sm ${activeWarehouseId==='combined'?'':'btn-dark'}" onclick="activeWarehouseId='combined';renderStock()">🗂 Общие остатки</button>
+    ${data.warehouses.map(wh=>`<button class="btn btn-sm ${activeWarehouseId===wh.id?'':'btn-dark'}" onclick="activeWarehouseId='${wh.id}';renderStock()">${wh.name}</button>`).join("")}
+    ${isAdmin?`<button class="btn btn-sm btn-dark" onclick="showWarehouseForm=!showWarehouseForm;renderStock()" style="border:1px dashed #2a2f3e">+ Новый склад</button>`:""}
+  </div>`;
+
+  // New warehouse form
+  if(showWarehouseForm&&isAdmin){
+    html+=`<div class="card" style="margin-bottom:14px">
+      <div class="label">Создать новый архивный склад</div>
+      <input type="text" placeholder="Название (например: Склад 2025)" value="${warehouseFormData.name}" oninput="warehouseFormData.name=this.value" style="margin-bottom:8px"/>
+      <input type="text" placeholder="Примечание" value="${warehouseFormData.note||''}" oninput="warehouseFormData.note=this.value" style="margin-bottom:8px"/>
       <div class="flex">
-        <button class="btn btn-green" onclick="saveStock()">Сохранить</button>
-        <button class="btn btn-dark" onclick="showStockForm=false;renderStock()">Отмена</button>
+        <button class="btn btn-green" onclick="saveWarehouse()">Создать</button>
+        <button class="btn btn-dark" onclick="showWarehouseForm=false;renderStock()">Отмена</button>
       </div>
     </div>`;
   }
 
-  html+=`<div class="label">История движений</div>`;
-  [...data.stock].sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)).forEach(m=>{
-    html+=`<div class="card" style="margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">
-      <div><span style="font-weight:700;font-size:13px">${m.item}</span><span class="badge" style="margin-left:8px;background:#1e2433;color:${typeColors[m.type]}">${typeLabels[m.type]}</span>
-      <div style="color:#4a5568;font-size:11px;margin-top:2px">${fmtDate(m.date)}${m.note?' · '+esc(m.note):''}</div></div>
-      <span class="mono" style="font-weight:700;color:${typeColors[m.type]};font-size:15px">${['shipped','used'].includes(m.type)?'-':'+'}${m.qty}</span>
+  // MAIN STOCK VIEW
+  if(activeWarehouseId==="main"){
+    html+=renderStockTable("Текущий склад", mainBal, true);
+    if(showStockForm&&isAdmin){
+      html+=`<div class="card" style="margin-bottom:12px">
+        <div class="label">Новое движение (Текущий склад)</div>
+        <select onchange="stockFormData.item=this.value" style="margin-bottom:8px">
+          ${STOCK_ITEMS.map(i=>`<option ${stockFormData.item===i?"selected":""}>${i}</option>`).join("")}
+        </select>
+        <div class="flex" style="margin-bottom:8px;flex-wrap:wrap">
+          ${Object.entries(typeLabels).map(([v,l])=>`<button class="btn btn-sm ${stockFormData.type===v?'':'btn-dark'}" onclick="stockFormData.type='${v}';renderStock()">${l}</button>`).join("")}
+        </div>
+        <div class="grid2" style="margin-bottom:8px">
+          <input type="number" placeholder="Количество" value="${stockFormData.qty}" oninput="stockFormData.qty=this.value"/>
+          <input type="date" value="${stockFormData.date}" onchange="stockFormData.date=this.value"/>
+        </div>
+        <input type="text" placeholder="Примечание" value="${stockFormData.note||''}" oninput="stockFormData.note=this.value" style="margin-bottom:8px"/>
+        <div class="flex">
+          <button class="btn btn-green" onclick="saveStock()">Сохранить</button>
+          <button class="btn btn-dark" onclick="showStockForm=false;renderStock()">Отмена</button>
+        </div>
+      </div>`;
+    }
+    html+=`<div class="label">История движений</div>`;
+    [...data.stock].sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)).forEach(m=>{
+      html+=`<div class="card" style="margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">
+        <div><span style="font-weight:700;font-size:13px">${m.item}</span><span class="badge" style="margin-left:8px;background:#1e2433;color:${typeColors[m.type]}">${typeLabels[m.type]}</span>
+        <div style="color:#4a5568;font-size:11px;margin-top:2px">${fmtDate(m.date)}${m.note?' · '+m.note:''}</div></div>
+        <span class="mono" style="font-weight:700;color:${typeColors[m.type]};font-size:15px">${['shipped','used'].includes(m.type)?'-':'+'}${m.qty}</span>
+      </div>`;
+    });
+    if(!data.stock.length)html+=`<div class="empty">Движений нет</div>`;
+  }
+
+  // COMBINED VIEW
+  else if(activeWarehouseId==="combined"){
+    html+=`<div style="background:#1e2433;border:1px solid #2563eb;border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:12px;color:#60a5fa">
+      📊 Показаны суммарные остатки: Текущий склад + все архивные склады (${data.warehouses.length} шт.)
     </div>`;
-  });
-  if(!data.stock.length)html+=`<div class="empty">Движений нет</div>`;
+    html+=renderStockTable("Общие остатки", combinedBal, false);
+    html+=`<div style="margin-top:12px"><button class="btn" style="width:100%;background:#1e3a5f" onclick="printStockReport('combined')">🖨 Распечатать общие остатки</button></div>`;
+  }
+
+  // ARCHIVE WAREHOUSE VIEW
+  else {
+    const wh = data.warehouses.find(w=>w.id===activeWarehouseId);
+    if(!wh){html+=`<div class="empty">Склад не найден</div>`;document.getElementById("page-stock").innerHTML=html;return;}
+    
+    const whBal={};
+    STOCK_ITEMS.forEach(i=>whBal[i]={produced:0,shipped:0,balance:0});
+    (wh.items||[]).forEach(wi=>{
+      if(!whBal[wi.item])whBal[wi.item]={produced:0,shipped:0,balance:0};
+      whBal[wi.item].balance+=wi.qty;
+    });
+
+    html+=`<div style="background:#161b27;border:1px solid #2a2f3e;border-radius:10px;padding:10px 14px;margin-bottom:12px">
+      <div style="font-weight:700;font-size:14px">${wh.name}</div>
+      ${wh.note?`<div style="color:#8892a0;font-size:12px;margin-top:2px">${wh.note}</div>`:""}
+      ${isAdmin?`<div class="flex" style="margin-top:8px">
+        <button class="btn btn-sm" style="background:#1e3a5f" onclick="showWhStockForm('${wh.id}')">+ Добавить остатки</button>
+        <button class="btn btn-red btn-sm" onclick="deleteWarehouse('${wh.id}')">🗑 Удалить склад</button>
+      </div>`:""}
+    </div>`;
+
+    if(showWarehouseStockForm&&warehouseStockForm.warehouseId===wh.id&&isAdmin){
+      html+=`<div class="card" style="margin-bottom:12px">
+        <div class="label">Добавить остаток в ${wh.name}</div>
+        <select onchange="warehouseStockForm.item=this.value" style="margin-bottom:8px">
+          ${STOCK_ITEMS.map(i=>`<option ${warehouseStockForm.item===i?"selected":""}>${i}</option>`).join("")}
+        </select>
+        <input type="number" placeholder="Количество (остаток)" value="${warehouseStockForm.qty}" oninput="warehouseStockForm.qty=this.value" style="margin-bottom:8px"/>
+        <div class="flex">
+          <button class="btn btn-green" onclick="saveWarehouseStock('${wh.id}')">Сохранить</button>
+          <button class="btn btn-dark" onclick="showWarehouseStockForm=false;renderStock()">Отмена</button>
+        </div>
+      </div>`;
+    }
+
+    html+=renderStockTable(wh.name, whBal, false);
+    html+=`<div style="margin-top:12px"><button class="btn" style="width:100%;background:#1e3a5f" onclick="printStockReport('${wh.id}')">🖨 Распечатать остатки ${wh.name}</button></div>`;
+  }
+
   document.getElementById("page-stock").innerHTML=html;
 }
+
+function renderStockTable(title, bal, showHistory){
+  let html=`<div class="card" style="padding:0;overflow:hidden;margin-bottom:14px">
+    <div style="padding:10px 14px;border-bottom:1px solid #2a2f3e;font-weight:700;font-size:13px">${title} — Остатки</div>
+    <div class="table-wrap"><table>
+      <thead><tr><th style="text-align:left">Наименование</th><th>Изготовлено</th><th>Отгружено</th><th>Остаток</th></tr></thead>
+      <tbody>${STOCK_ITEMS.map(item=>{const b=bal[item]||{produced:0,shipped:0,balance:0};return`<tr><td>${item}</td><td class="mono" style="color:#22c55e">${b.produced||0}</td><td class="mono" style="color:#f87171">${b.shipped||0}</td><td class="mono" style="color:${b.balance<0?'#f87171':'#60a5fa'};font-weight:700">${b.balance||0}</td></tr>`;}).join("")}
+      </tbody>
+    </table></div>
+  </div>`;
+  return html;
+}
+
+function showWhStockForm(whId){
+  showWarehouseStockForm=true;
+  warehouseStockForm={warehouseId:whId,item:STOCK_ITEMS[0],qty:""};
+  renderStock();
+}
+
+async function saveWarehouse(){
+  if(!warehouseFormData.name.trim()){alert("Введите название");return;}
+  try{
+    await db.collection("warehouses").add({name:warehouseFormData.name,note:warehouseFormData.note||"",items:[],createdAt:Date.now()});
+    warehouseFormData={name:"",note:""};
+    showWarehouseForm=false;
+  }catch(e){alert("Ошибка: "+e.message);}
+}
+
+async function saveWarehouseStock(whId){
+  if(!warehouseStockForm.qty||parseFloat(warehouseStockForm.qty)<=0){alert("Введите количество");return;}
+  const wh=data.warehouses.find(w=>w.id===whId);
+  const items=[...(wh.items||[])];
+  const existing=items.findIndex(i=>i.item===warehouseStockForm.item);
+  if(existing>=0)items[existing].qty+=parseFloat(warehouseStockForm.qty);
+  else items.push({item:warehouseStockForm.item,qty:parseFloat(warehouseStockForm.qty)});
+  try{
+    await db.collection("warehouses").doc(whId).update({items});
+    showWarehouseStockForm=false;
+  }catch(e){alert("Ошибка: "+e.message);}
+}
+
+async function deleteWarehouse(whId){
+  if(!confirm("Удалить этот архивный склад? Все данные будут удалены."))return;
+  await db.collection("warehouses").doc(whId).delete();
+  activeWarehouseId="main";
+}
+
+function printStockReport(whId){
+  let title,rows="",bal={};
+  STOCK_ITEMS.forEach(i=>bal[i]={produced:0,shipped:0,balance:0});
+
+  if(whId==="combined"){
+    title="Общие остатки (все склады)";
+    data.stock.forEach(m=>{
+      if(m.type==="produced"){bal[m.item].produced+=m.qty;bal[m.item].balance+=m.qty;}
+      else if(m.type==="shipped"){bal[m.item].shipped+=m.qty;bal[m.item].balance-=m.qty;}
+      else if(m.type==="received")bal[m.item].balance+=m.qty;
+      else if(m.type==="used")bal[m.item].balance-=m.qty;
+    });
+    data.warehouses.forEach(wh=>{
+      (wh.items||[]).forEach(wi=>{if(!bal[wi.item])bal[wi.item]={produced:0,shipped:0,balance:0};bal[wi.item].balance+=wi.qty;});
+    });
+  } else if(whId==="main"){
+    title="Текущий склад";
+    data.stock.forEach(m=>{
+      if(m.type==="produced"){bal[m.item].produced+=m.qty;bal[m.item].balance+=m.qty;}
+      else if(m.type==="shipped"){bal[m.item].shipped+=m.qty;bal[m.item].balance-=m.qty;}
+      else if(m.type==="received")bal[m.item].balance+=m.qty;
+      else if(m.type==="used")bal[m.item].balance-=m.qty;
+    });
+  } else {
+    const wh=data.warehouses.find(w=>w.id===whId);
+    title=wh?wh.name:"Архивный склад";
+    (wh?.items||[]).forEach(wi=>{if(!bal[wi.item])bal[wi.item]={produced:0,shipped:0,balance:0};bal[wi.item].balance+=wi.qty;});
+  }
+
+  rows=`<table><tr><th>Наименование</th><th>Изготовлено</th><th>Отгружено</th><th>Остаток</th></tr>`;
+  STOCK_ITEMS.forEach(item=>{
+    const b=bal[item]||{produced:0,shipped:0,balance:0};
+    rows+=`<tr><td>${item}</td><td style="color:green">${b.produced||0}</td><td style="color:red">${b.shipped||0}</td><td style="font-weight:bold;color:${b.balance<0?'red':'blue'}">${b.balance||0}</td></tr>`;
+  });
+  rows+=`</table>`;
+
+  const html=`<html><head><title>Склад — ${title}</title>
+  <style>body{font-family:Arial;padding:24px;font-size:13px}h1{font-size:18px;margin-bottom:4px}
+  .period{color:#888;font-size:12px;margin-bottom:20px}
+  table{width:100%;border-collapse:collapse}th{background:#f0f4ff;padding:8px;text-align:left;border:1px solid #ddd}
+  td{padding:8px;border:1px solid #ddd}tr:nth-child(even){background:#fafafa}
+  .footer{margin-top:24px;color:#aaa;font-size:11px;border-top:1px solid #eee;padding-top:10px}</style></head>
+  <body><h1>⚙ ЗАВОД БУХ — ${title}</h1>
+  <div class="period">Дата формирования: ${new Date().toLocaleDateString("ru-RU")}</div>
+  ${rows}
+  <div class="footer">Сформировано: ${new Date().toLocaleDateString("ru-RU")} ${new Date().toLocaleTimeString("ru-RU")}</div>
+  </body></html>`;
+  const w=window.open("","_blank");w.document.write(html);w.document.close();setTimeout(()=>w.print(),500);
+}
+
 async function saveStock(){
   if(!stockFormData.qty||parseFloat(stockFormData.qty)<=0){alert("Введите количество");return;}
   try{
@@ -739,6 +931,7 @@ async function saveStock(){
     showStockForm=false;
   }catch(e){alert("Ошибка: "+e.message);}
 }
+
 
 // ============ DEBTS ============
 let showDebtForm=false;
@@ -849,7 +1042,7 @@ function renderReports(){
   data.transactions.forEach(t=>{const k=t.date.slice(0,7);if(!byMonth[k])byMonth[k]={income:0,expense:0,dividend:0};if(t.type==="income")byMonth[k].income+=t.amount;else if(t.type==="expense")byMonth[k].expense+=t.amount;else byMonth[k].dividend+=t.amount;});
   const rbkIncome=filtered.filter(t=>t.type==="income"&&t.account==="rbk").reduce((s,t)=>s+t.amount,0);
   const profit=income-expense-dividend;
-  const reports=["cashflow","pnl","balance","categories","monthly","vat"];
+  const reports=["cashflow","pnl","balance","categories","monthly","vat","stock_main","stock_combined"];
   const rLabels={"cashflow":"Cash Flow","pnl":"P&L","balance":"Баланс","categories":"Категории","monthly":"По месяцам","vat":"НДС"};
 
   let html=`<div class="section-title">Отчёты</div>
@@ -924,6 +1117,23 @@ function renderReports(){
     });
     if(!Object.keys(byMonth).length)html+=`<div class="empty">Нет данных</div>`;
   }
+  if(reportType==="stock_main"||reportType==="stock_combined"){
+    const whId=reportType==="stock_main"?"main":"combined";
+    html+=`<div style="text-align:center;padding:20px">
+      <div style="color:#8892a0;margin-bottom:16px;font-size:13px">${reportType==="stock_main"?"Остатки текущего склада":"Общие остатки всех складов"}</div>
+      <button class="btn" style="background:#1e3a5f;padding:14px 24px;font-size:15px" onclick="printStockReport('${whId}')">🖨 Распечатать / PDF</button>
+    </div>`;
+    // Also show archive warehouses as options
+    if(reportType==="stock_combined"&&data.warehouses.length){
+      html+=`<div class="label" style="margin-top:16px">Также можно распечатать отдельно:</div>`;
+      data.warehouses.forEach(wh=>{
+        html+=`<div class="card" style="margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">
+          <span style="font-weight:600">${wh.name}</span>
+          <button class="btn btn-sm" style="background:#1e3a5f" onclick="printStockReport('${wh.id}')">🖨 PDF</button>
+        </div>`;
+      });
+    }
+  }
   if(reportType==="vat"){
     html+=`<div class="label">НДС отчёт (RBK Bank)</div><div class="card" style="padding:0;overflow:hidden">`;
     [[`Оборот RBK (с НДС)`,rbkIncome,"#60a5fa"],[`Без НДС (база)`,rbkIncome/1.16,"#c4cad8"],[`НДС 16%`,rbkIncome-rbkIncome/1.16,"#fbbf24"]].forEach(([l,v,c])=>{
@@ -931,7 +1141,110 @@ function renderReports(){
     });
     html+=`</div><div style="color:#4a5568;font-size:11px;margin-top:10px">* Kaspi и Наличка — без НДС</div>`;
   }
+  html += `<div style="margin-top:20px">
+    <button class="btn" style="width:100%;padding:14px;font-size:15px;background:#1e3a5f" onclick="printReport('${reportType}')">🖨 Распечатать / Сохранить PDF</button>
+  </div>`;
   document.getElementById("page-reports").innerHTML=html;
+}
+
+function printReport(type) {
+  const filtered=data.transactions.filter(t=>t.date>=repFrom&&t.date<=repTo);
+  let income=0,expense=0,dividend=0;
+  const byDate={},byCat={};
+  filtered.forEach(t=>{
+    if(t.type==="income")income+=t.amount;
+    else if(t.type==="expense")expense+=t.amount;
+    else dividend+=t.amount;
+    if(!byDate[t.date])byDate[t.date]={income:0,expense:0,dividend:0};
+    byDate[t.date][t.type]+=t.amount;
+    if(!byCat[t.category])byCat[t.category]={income:0,expense:0,dividend:0};
+    byCat[t.category][t.type]+=t.amount;
+  });
+  const bal={cash:0,kaspi:0,rbk:0};
+  data.transactions.forEach(t=>{if(t.type==="income")bal[t.account]=(bal[t.account]||0)+t.amount;else bal[t.account]=(bal[t.account]||0)-t.amount;});
+  const byMonth={};
+  data.transactions.forEach(t=>{const k=t.date.slice(0,7);if(!byMonth[k])byMonth[k]={income:0,expense:0,dividend:0};if(t.type==="income")byMonth[k].income+=t.amount;else if(t.type==="expense")byMonth[k].expense+=t.amount;else byMonth[k].dividend+=t.amount;});
+  const rbkIncome=filtered.filter(t=>t.type==="income"&&t.account==="rbk").reduce((s,t)=>s+t.amount,0);
+  const profit=income-expense-dividend;
+  const rLabels={"cashflow":"Cash Flow","pnl":"Прибыль и убытки (P&L)","balance":"Баланс счетов","categories":"По категориям","monthly":"По месяцам","vat":"НДС отчёт","stock_main":"Склад (текущий)","stock_combined":"Склад (общие остатки)"};
+  const periodStr = repFrom===repTo ? fmtDate(repFrom) : fmtDate(repFrom)+" — "+fmtDate(repTo);
+
+  let rows = "";
+
+  if(type==="cashflow"){
+    rows += `<h3>Итоги периода</h3>
+    <table><tr><th>Доходы</th><th>Расходы</th><th>Дивиденды</th><th>Чистый поток</th></tr>
+    <tr><td style="color:green">${fmt(income)} ₸</td><td style="color:red">${fmt(expense)} ₸</td><td style="color:purple">${fmt(dividend)} ₸</td><td style="font-weight:bold;color:${profit<0?'red':'blue'}">${fmt(profit)} ₸</td></tr></table><br/>
+    <h3>По дням</h3><table><tr><th>Дата</th><th>Доходы</th><th>Расходы</th><th>Дивиденды</th><th>Итог</th></tr>`;
+    Object.entries(byDate).sort(([a],[b])=>a.localeCompare(b)).forEach(([date,d])=>{
+      rows+=`<tr><td>${fmtDate(date)}</td><td style="color:green">${d.income>0?fmt(d.income)+" ₸":"-"}</td><td style="color:red">${d.expense>0?fmt(d.expense)+" ₸":"-"}</td><td style="color:purple">${d.dividend>0?fmt(d.dividend)+" ₸":"-"}</td><td style="font-weight:bold">${fmt(d.income-d.expense-d.dividend)} ₸</td></tr>`;
+    });
+    rows+=`</table>`;
+  }
+  else if(type==="pnl"){
+    rows+=`<table>
+    <tr><th>Статья</th><th>Сумма</th></tr>
+    <tr><td>Выручка (доходы)</td><td style="color:green;font-weight:bold">${fmt(income)} ₸</td></tr>
+    <tr><td>Расходы</td><td style="color:red;font-weight:bold">-${fmt(expense)} ₸</td></tr>
+    <tr><td>Дивиденды</td><td style="color:purple;font-weight:bold">-${fmt(dividend)} ₸</td></tr>
+    <tr style="background:#f0f0f0"><td><b>Чистая прибыль</b></td><td style="color:${profit<0?'red':'blue'};font-weight:bold;font-size:16px">${fmt(profit)} ₸</td></tr>
+    </table>`;
+  }
+  else if(type==="balance"){
+    rows+=`<table><tr><th>Счёт</th><th>Группа</th><th>Остаток</th></tr>`;
+    ACCOUNTS.forEach(a=>{const v=bal[a.id]||0;rows+=`<tr><td>${a.name}</td><td>${a.group}</td><td style="font-weight:bold;color:${v<0?'red':'blue'}">${fmt(v)} ₸</td></tr>`;});
+    const total=Object.values(bal).reduce((s,v)=>s+v,0);
+    rows+=`<tr style="background:#f0f0f0"><td><b>ИТОГО</b></td><td></td><td style="font-weight:bold;font-size:16px;color:blue">${fmt(total)} ₸</td></tr></table>`;
+  }
+  else if(type==="categories"){
+    rows+=`<table><tr><th>Категория</th><th>Доходы</th><th>Расходы</th><th>Дивиденды</th></tr>`;
+    Object.entries(byCat).sort(([,a],[,b])=>(b.income+b.expense)-(a.income+a.expense)).forEach(([cat,d])=>{
+      rows+=`<tr><td>${cat}</td><td style="color:green">${d.income>0?fmt(d.income)+" ₸":"-"}</td><td style="color:red">${d.expense>0?fmt(d.expense)+" ₸":"-"}</td><td style="color:purple">${d.dividend>0?fmt(d.dividend)+" ₸":"-"}</td></tr>`;
+    });
+    rows+=`</table>`;
+  }
+  else if(type==="monthly"){
+    rows+=`<table><tr><th>Месяц</th><th>Доходы</th><th>Расходы</th><th>Дивиденды</th><th>Прибыль</th></tr>`;
+    Object.entries(byMonth).sort(([a],[b])=>a.localeCompare(b)).forEach(([month,d])=>{
+      const p=d.income-d.expense-d.dividend;
+      rows+=`<tr><td>${new Date(month+"-01").toLocaleDateString("ru-RU",{month:"long",year:"numeric"})}</td><td style="color:green">${fmt(d.income)} ₸</td><td style="color:red">${fmt(d.expense)} ₸</td><td style="color:purple">${d.dividend>0?fmt(d.dividend)+" ₸":"-"}</td><td style="font-weight:bold;color:${p<0?'red':'blue'}">${fmt(p)} ₸</td></tr>`;
+    });
+    rows+=`</table>`;
+  }
+  else if(type==="vat"){
+    rows+=`<table>
+    <tr><th>Статья</th><th>Сумма</th></tr>
+    <tr><td>Оборот RBK Bank (с НДС)</td><td style="font-weight:bold">${fmt(rbkIncome)} ₸</td></tr>
+    <tr><td>Без НДС (налоговая база)</td><td>${fmt(rbkIncome/1.16)} ₸</td></tr>
+    <tr style="background:#f0f0f0"><td><b>НДС 16%</b></td><td style="font-weight:bold;color:orange">${fmt(rbkIncome-rbkIncome/1.16)} ₸</td></tr>
+    </table>
+    <p style="color:#888;font-size:12px;margin-top:10px">* Kaspi и Наличка — без НДС. НДС применяется только к доходам через RBK Bank.</p>`;
+  }
+
+  const html=`<html><head><title>Отчёт — ${rLabels[type]}</title>
+  <style>
+    body{font-family:Arial,sans-serif;padding:24px;font-size:13px;color:#222}
+    h1{font-size:20px;margin-bottom:4px;color:#1a1a2e}
+    h3{font-size:14px;margin:16px 0 8px;color:#333}
+    .period{color:#888;font-size:13px;margin-bottom:20px}
+    table{width:100%;border-collapse:collapse;margin-bottom:16px}
+    th{background:#f0f4ff;padding:8px 10px;text-align:left;font-size:12px;color:#444;border:1px solid #ddd}
+    td{padding:8px 10px;border:1px solid #ddd;font-size:13px}
+    tr:nth-child(even){background:#fafafa}
+    .footer{margin-top:30px;color:#aaa;font-size:11px;border-top:1px solid #eee;padding-top:10px}
+    @media print{button{display:none}}
+  </style></head>
+  <body>
+  <h1>⚙ ЗАВОД БУХ — ${rLabels[type]}</h1>
+  <div class="period">Период: ${periodStr}</div>
+  ${rows}
+  <div class="footer">Сформировано: ${new Date().toLocaleDateString("ru-RU")} ${new Date().toLocaleTimeString("ru-RU")}</div>
+  </body></html>`;
+
+  const w=window.open("","_blank");
+  w.document.write(html);
+  w.document.close();
+  setTimeout(()=>w.print(),600);
 }
 
 // ============ INIT ============
