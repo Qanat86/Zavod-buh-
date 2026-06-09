@@ -794,6 +794,7 @@ async function delTx(id){if(!confirm("Удалить?"))return;await db.collecti
 let showStockForm=false;
 let stockFormData={item:STOCK_ITEMS[0],type:"produced",qty:"",date:today(),note:""};
 let activeWarehouseId="main"; // "main" = текущий основной склад, или id архивного склада
+let selectedStockItem=null; // выбранная категория для детализации
 let showWarehouseForm=false;
 let warehouseFormData={name:"",year:new Date().getFullYear(),note:""};
 let showWarehouseStockForm=false;
@@ -852,14 +853,14 @@ function renderStock(){
 
     // Build tabs HTML
     let tabsHtml = '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;overflow-x:auto">';
-    tabsHtml += '<button class="btn btn-sm" onclick="activeWarehouseId=\'main\';renderStock()" style="background:'+(activeWarehouseId==="main"?"#2563eb":"#1e2433")+'">📦 Текущий склад</button>';
-    tabsHtml += '<button class="btn btn-sm" onclick="activeWarehouseId=\'combined\';renderStock()" style="background:'+(activeWarehouseId==="combined"?"#2563eb":"#1e2433")+'">🗂 Общие остатки</button>';
+    tabsHtml += '<button class="btn btn-sm" onclick="activeWarehouseId=\'main\';selectedStockItem=null;renderStock()" style="background:'+(activeWarehouseId==="main"?"#2563eb":"#1e2433")+'">📦 Текущий склад</button>';
+    tabsHtml += '<button class="btn btn-sm" onclick="activeWarehouseId=\'combined\';selectedStockItem=null;renderStock()" style="background:'+(activeWarehouseId==="combined"?"#2563eb":"#1e2433")+'">🗂 Общие остатки</button>';
     (data.warehouses||[]).forEach(wh=>{
-      tabsHtml += '<button class="btn btn-sm" onclick="activeWarehouseId=\''+wh.id+'\';renderStock()" style="background:'+(activeWarehouseId===wh.id?"#2563eb":"#1e2433")+'">'+wh.name+'</button>';
+      tabsHtml += '<button class="btn btn-sm" onclick="activeWarehouseId=\''+wh.id+'\';selectedStockItem=null;renderStock()" style="background:'+(activeWarehouseId===wh.id?"#2563eb":"#1e2433")+'">'+wh.name+'</button>';
     });
     if(isAdmin) tabsHtml += '<button class="btn btn-sm" onclick="showWarehouseForm=!showWarehouseForm;renderStock()" style="background:#1e2433;border:1px dashed #2a2f3e">+ Новый склад</button>';
-    tabsHtml += '<button class="btn btn-sm" onclick="activeWarehouseId=\'castings\';renderStock()" style="background:'+(activeWarehouseId==="castings"?"#7c3aed":"#1e2433")+'">🏭 Залитые</button>';
-    tabsHtml += '<button class="btn btn-sm" onclick="activeWarehouseId=\'defects\';renderStock()" style="background:'+(activeWarehouseId==="defects"?"#dc2626":"#1e2433")+'">❌ Браки</button>';
+    tabsHtml += '<button class="btn btn-sm" onclick="activeWarehouseId=\'castings\';selectedStockItem=null;renderStock()" style="background:'+(activeWarehouseId==="castings"?"#7c3aed":"#1e2433")+'">🏭 Залитые</button>';
+    tabsHtml += '<button class="btn btn-sm" onclick="activeWarehouseId=\'defects\';selectedStockItem=null;renderStock()" style="background:'+(activeWarehouseId==="defects"?"#dc2626":"#1e2433")+'">❌ Браки</button>';
     tabsHtml += '</div>';
 
     let html = '';
@@ -1410,11 +1411,79 @@ function printDefects(){
 
 function renderStockTable(title, bal, showHistory){
   if(!bal) bal={};
+
+  // If an item is selected, show detail view
+  if(selectedStockItem){
+    const item = selectedStockItem;
+    const b = bal[item]||{produced:0,shipped:0,balance:0};
+
+    // Get positions from castings for this item
+    const positions={};
+    (data.castings||[]).forEach(c=>{
+      const key = c.category||c.item||"";
+      if(key===item){
+        const posName = c.name||"—";
+        positions[posName]=(positions[posName]||0)+c.qty;
+      }
+    });
+    const hasPositions = Object.keys(positions).length>0;
+
+    let html=`<div style="margin-bottom:14px">`;
+    // Back button
+    html+=`<button onclick="selectedStockItem=null;renderStock()" style="background:#1e2433;border:none;color:#60a5fa;border-radius:8px;padding:7px 14px;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:12px">← Назад</button>`;
+    // Item header
+    html+=`<div style="background:#161b27;border:1px solid #2563eb;border-radius:12px;overflow:hidden">`;
+    html+=`<div style="padding:12px 14px;background:#1e3a5f;display:flex;justify-content:space-between;align-items:center">`;
+    html+=`<div style="font-weight:800;font-size:16px;color:#e8eaf0">${item}</div>`;
+    html+=`<div style="font-family:Courier New,monospace;font-weight:800;font-size:18px;color:${b.balance<0?'#f87171':'#60a5fa'}">${b.balance||0} шт</div>`;
+    html+=`</div>`;
+    // Stats row
+    html+=`<div style="display:grid;grid-template-columns:1fr 1fr;gap:0;border-bottom:1px solid #2a2f3e">`;
+    html+=`<div style="padding:10px 14px;border-right:1px solid #2a2f3e"><div style="color:#4a5568;font-size:11px">Изготовлено</div><div style="color:#22c55e;font-weight:700;font-size:15px;font-family:Courier New,monospace">${b.produced||0}</div></div>`;
+    html+=`<div style="padding:10px 14px"><div style="color:#4a5568;font-size:11px">Отгружено</div><div style="color:#f87171;font-weight:700;font-size:15px;font-family:Courier New,monospace">${b.shipped||0}</div></div>`;
+    html+=`</div>`;
+
+    // Positions breakdown from castings
+    if(hasPositions){
+      html+=`<div style="padding:10px 14px;border-bottom:1px solid #2a2f3e;font-weight:700;font-size:12px;color:#8892a0;text-transform:uppercase;letter-spacing:1px">Позиции (из залитых изделий)</div>`;
+      html+=`<table style="width:100%;border-collapse:collapse">`;
+      html+=`<thead><tr style="background:#0f1117"><th style="padding:7px 14px;text-align:left;color:#4a5568;font-size:11px">Позиция</th><th style="padding:7px 14px;text-align:right;color:#4a5568;font-size:11px">Кол-во (шт)</th></tr></thead><tbody>`;
+      Object.entries(positions)
+        .sort(([,a],[,b])=>b-a)
+        .forEach(([pos,qty])=>{
+          html+=`<tr style="border-top:1px solid #1a1f2e">`;
+          html+=`<td style="padding:8px 14px;color:#c4cad8">— ${pos}</td>`;
+          html+=`<td style="padding:8px 14px;text-align:right;font-family:Courier New,monospace;font-weight:700;color:#a78bfa">${qty}</td>`;
+          html+=`</tr>`;
+        });
+      html+=`</tbody></table>`;
+    } else {
+      html+=`<div style="padding:12px 14px;color:#4a5568;font-size:13px">Позиции не найдены в залитых изделиях</div>`;
+    }
+    html+=`</div></div>`;
+    return html;
+  }
+
+  // Normal table view — items are clickable
   let html=`<div class="card" style="padding:0;overflow:hidden;margin-bottom:14px">
     <div style="padding:10px 14px;border-bottom:1px solid #2a2f3e;font-weight:700;font-size:13px">${title} — Остатки</div>
+    <div style="padding:8px 14px;background:#1e2433;font-size:11px;color:#60a5fa">💡 Нажмите на изделие для детализации по позициям</div>
     <div class="table-wrap"><table>
-      <thead><tr><th style="text-align:left">Наименование</th><th>Изготовлено</th><th>Отгружено</th><th>Остаток</th></tr></thead>
-      <tbody>${STOCK_ITEMS.map(item=>{const b=bal[item]||{produced:0,shipped:0,balance:0};return`<tr><td>${item}</td><td class="mono" style="color:#22c55e">${b.produced||0}</td><td class="mono" style="color:#f87171">${b.shipped||0}</td><td class="mono" style="color:${b.balance<0?'#f87171':'#60a5fa'};font-weight:700">${b.balance||0}</td></tr>`;}).join("")}
+      <thead><tr>
+        <th style="text-align:left">Наименование</th>
+        <th style="text-align:right">Изготовлено</th>
+        <th style="text-align:right">Отгружено</th>
+        <th style="text-align:right">Остаток</th>
+      </tr></thead>
+      <tbody>${STOCK_ITEMS.map(item=>{
+        const b=bal[item]||{produced:0,shipped:0,balance:0};
+        return `<tr onclick="selectedStockItem='${item}';renderStock()" style="cursor:pointer;border-top:1px solid #1a1f2e" onmouseover="this.style.background='#1e2433'" onmouseout="this.style.background=''">
+          <td style="padding:8px 10px;color:#60a5fa;font-weight:600;text-decoration:underline;text-decoration-style:dotted">${item}</td>
+          <td class="mono" style="color:#22c55e;text-align:right">${b.produced||0}</td>
+          <td class="mono" style="color:#f87171;text-align:right">${b.shipped||0}</td>
+          <td class="mono" style="color:${b.balance<0?'#f87171':'#60a5fa'};font-weight:700;text-align:right">${b.balance||0}</td>
+        </tr>`;
+      }).join("")}
       </tbody>
     </table></div>
   </div>`;
