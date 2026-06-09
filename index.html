@@ -823,6 +823,14 @@ function renderStock(){
       else if(m.type==="received") mainBal[m.item].balance+=m.qty;
       else if(m.type==="used") mainBal[m.item].balance-=m.qty;
     });
+    // Add castings → counted as "produced" in main stock
+    (data.castings||[]).forEach(c=>{
+      const key = c.category||c.item||"";
+      if(mainBal[key]!==undefined){
+        mainBal[key].produced += c.qty;
+        mainBal[key].balance  += c.qty;
+      }
+    });
 
     // Compute combined balance
     const combinedBal={};
