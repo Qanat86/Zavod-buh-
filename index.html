@@ -1257,161 +1257,80 @@ async function deleteDefect(id){
 
 function printDefects(){
   const grouped={};
-  [...data.defects].forEach(c=>{
-    if(!grouped[c.date])grouped[c.date]=[];
-    grouped[c.date].push(c);
+  (data.defects||[]).forEach(c=>{
+    if(!grouped[c.date]) grouped[c.date]={};
+    const cat = c.category||c.item||"—";
+    if(!grouped[c.date][cat]) grouped[c.date][cat]=[];
+    grouped[c.date][cat].push(c);
   });
   const sortedDates=Object.keys(grouped).sort((a,b)=>a.localeCompare(b));
+
   const totals={};
   CAST_ITEMS.forEach(i=>totals[i]=0);
-  data.defects.forEach(c=>{if(totals[c.item]!==undefined)totals[c.item]+=c.qty;});
+  (data.defects||[]).forEach(c=>{
+    const key = c.category||c.item||"";
+    if(key && totals[key]!==undefined) totals[key]+=c.qty;
+  });
   const totalAll=Object.values(totals).reduce((s,v)=>s+v,0);
 
   let rows="";
   sortedDates.forEach(date=>{
-    grouped[date].forEach((c,i)=>{
-      rows+=`<tr ${i===0?'style="border-top:2px solid #ddd"':''}><td>${i===0?fmtDate(date):''}</td><td>${c.item}</td><td align="center" style="font-weight:bold;color:red">${c.qty}</td><td>${c.note||'—'}</td></tr>`;
+    let firstInDate=true;
+    Object.entries(grouped[date]).forEach(([cat,items])=>{
+      const catTotal=items.reduce((s,c)=>s+c.qty,0);
+      rows+=`<tr style="background:#fff0f0;border-top:2px solid #ddd">
+        <td><b>${firstInDate?fmtDate(date):''}</b></td>
+        <td colspan="2"><b>${cat}</b></td>
+        <td align="right"><b>${catTotal} шт</b></td>
+      </tr>`;
+      firstInDate=false;
+      items.forEach(c=>{
+        rows+=`<tr>
+          <td></td>
+          <td style="padding-left:16px;color:#555">${c.name||'—'}</td>
+          <td align="center" style="font-weight:bold;color:red">${c.qty}</td>
+          <td></td>
+        </tr>`;
+      });
     });
   });
-  const totalRows=CAST_ITEMS.map(item=>`<tr><td><b>${item}</b></td><td align="center" style="font-weight:bold;color:red">${totals[item]||0}</td></tr>`).join("");
+
+  const totalRows=CAST_ITEMS.map(item=>`<tr>
+    <td><b>${item}</b></td>
+    <td align="center" style="font-weight:bold;color:red;font-size:15px">${totals[item]||0}</td>
+  </tr>`).join("");
 
   const html=`<html><head><title>Браки</title>
-  <style>body{font-family:Arial;padding:20px;font-size:13px}h1{font-size:18px;margin-bottom:4px}
-  h2{font-size:14px;margin-top:20px;color:#555}
-  table{width:100%;border-collapse:collapse;margin-bottom:16px}
-  th{background:#fff0f0;padding:7px 10px;text-align:left;border:1px solid #ddd;font-size:12px}
-  td{padding:7px 10px;border:1px solid #ddd}tr:nth-child(even){background:#fafafa}
-  .footer{margin-top:24px;color:#aaa;font-size:11px;border-top:1px solid #eee;padding-top:10px}</style></head>
+  <style>
+    body{font-family:Arial;padding:20px;font-size:13px}
+    h1{font-size:18px;margin-bottom:4px}
+    h2{font-size:14px;margin-top:20px;color:#555;border-bottom:2px solid #dc2626;padding-bottom:4px}
+    table{width:100%;border-collapse:collapse;margin-bottom:16px}
+    th{background:#fff0f0;padding:7px 10px;text-align:left;border:1px solid #ddd;font-size:12px}
+    td{padding:6px 10px;border:1px solid #eee}
+    .footer{margin-top:24px;color:#aaa;font-size:11px;border-top:1px solid #eee;padding-top:10px}
+  </style></head>
   <body>
-  <h1>⚙ ЗАВОД БУХ — Браки (по датам)</h1>
+  <h1>⚙ ЗАВОД БУХ — Браки</h1>
   <p style="color:#888;font-size:12px">Дата формирования: ${new Date().toLocaleDateString("ru-RU")} | Итого: ${totalAll} шт.</p>
-  <h2>По датам</h2>
-  <table><thead><tr><th>Дата</th><th>Изделие</th><th>Количество (шт)</th><th>Причина</th></tr></thead>
-  <tbody>${rows}</tbody></table>
-  <h2>Итого брака (все время)</h2>
-  <table><thead><tr><th>Изделие</th><th>Итого (шт)</th></tr></thead>
-  <tbody>${totalRows}</tbody></table>
+
+  <h2>По датам и категориям</h2>
+  <table>
+    <thead><tr><th>Дата</th><th>Категория / Позиция</th><th>Кол-во</th><th>Итого</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>
+
+  <h2>Итого брака (по категориям)</h2>
+  <table>
+    <thead><tr><th>Категория</th><th>Итого (шт)</th></tr></thead>
+    <tbody>${totalRows}</tbody>
+  </table>
   <div class="footer">Сформировано: ${new Date().toLocaleDateString("ru-RU")} ${new Date().toLocaleTimeString("ru-RU")}</div>
   </body></html>`;
-  const w=window.open("","_blank");w.document.write(html);w.document.close();setTimeout(()=>w.print(),500);
-}
-
-async function saveCasting(){
-  if(!castFormData.category){alert("Выберите категорию");return;}
-  const validLines=castFormData.lines.filter(l=>l.name&&l.name.trim()&&parseFloat(l.qty)>0);
-  if(!validLines.length){alert("Добавьте хотя бы одну позицию с количеством");return;}
-  try{
-    for(const l of validLines){
-      await db.collection("castings").add({
-        date:castFormData.date,
-        category:castFormData.category,
-        name:l.name.trim(),
-        qty:parseFloat(l.qty),
-        createdAt:Date.now(),
-        createdBy:currentUser.name
-      });
-    }
-    castFormData={date:today(),category:"",lines:[{name:"",qty:""}]};
-    castFormStep=0;
-    showCastForm=false;
-  }catch(e){alert("Ошибка: "+e.message);}
-}
-
-function castAddLine(){
-  if(castFormData.lines.length>=100)return;
-  castFormData.lines.push({name:"",qty:""});
-  renderStock();
-}
-function castRemoveLine(i){
-  castFormData.lines.splice(i,1);
-  if(!castFormData.lines.length) castFormData.lines.push({name:"",qty:""});
-  renderStock();
-}
-
-function startEditCastGroup(date, category){
-  // Load existing records for this date+category into edit form
-  const records = (data.castings||[]).filter(c=>(c.category||c.item)===category && c.date===date);
-  castFormData = {
-    date: date,
-    category: category,
-    lines: records.map(c=>({name:c.name||c.item||"",qty:String(c.qty),id:c.id}))
-  };
-  if(!castFormData.lines.length) castFormData.lines.push({name:"",qty:""});
-  castFormStep = 2;
-  editCastingGroup = {date, category, ids: records.map(c=>c.id)};
-  showCastForm = true;
-  renderStock();
-}
-
-async function saveCastingEdit(){
-  if(!editCastingGroup) { saveCasting(); return; }
-  const validLines = castFormData.lines.filter(l=>l.name&&l.name.trim()&&parseFloat(l.qty)>0);
-  if(!validLines.length){alert("Добавьте хотя бы одну позицию");return;}
-  try{
-    // Delete old records
-    for(const id of editCastingGroup.ids){
-      await db.collection("castings").doc(id).delete();
-    }
-    // Add new records
-    for(const l of validLines){
-      await db.collection("castings").add({
-        date: castFormData.date,
-        category: castFormData.category,
-        name: l.name.trim(),
-        qty: parseFloat(l.qty),
-        createdAt: Date.now(),
-        createdBy: currentUser.name
-      });
-    }
-    castFormData={date:today(),category:"",lines:[{name:"",qty:""}]};
-    castFormStep=0; showCastForm=false; editCastingGroup=null;
-  }catch(e){alert("Ошибка: "+e.message);}
-}
-
-async function deleteCasting(id){
-  if(!confirm("Удалить запись?"))return;
-  await db.collection("castings").doc(id).delete();
-}
-
-function printCastings(){
-  const grouped={};
-  [...data.castings].forEach(c=>{
-    if(!grouped[c.date])grouped[c.date]=[];
-    grouped[c.date].push(c);
-  });
-  const sortedDates=Object.keys(grouped).sort((a,b)=>a.localeCompare(b));
-  const totals={};
-  CAST_ITEMS.forEach(i=>totals[i]=0);
-  data.castings.forEach(c=>{if(totals[c.item]!==undefined)totals[c.item]+=c.qty;});
-
-  let rows="";
-  sortedDates.forEach(date=>{
-    grouped[date].forEach((c,i)=>{
-      rows+=`<tr ${i===0?`style="border-top:2px solid #ddd"`:''}><td>${i===0?fmtDate(date):''}</td><td>${c.item}</td><td align="center" style="font-weight:bold;color:#7c3aed">${c.qty}</td><td>${c.note||'—'}</td></tr>`;
-    });
-  });
-
-  const totalRows=CAST_ITEMS.map(item=>`<tr><td><b>${item}</b></td><td align="center" style="font-weight:bold;color:#7c3aed">${totals[item]||0}</td></tr>`).join("");
-
-  const html=`<html><head><title>Залитые изделия</title>
-  <style>body{font-family:Arial;padding:20px;font-size:13px}h1{font-size:18px;margin-bottom:4px}
-  h2{font-size:14px;margin-top:20px;color:#555}
-  table{width:100%;border-collapse:collapse;margin-bottom:16px}
-  th{background:#f3f0ff;padding:7px 10px;text-align:left;border:1px solid #ddd;font-size:12px}
-  td{padding:7px 10px;border:1px solid #ddd}tr:nth-child(even){background:#fafafa}
-  .footer{margin-top:24px;color:#aaa;font-size:11px;border-top:1px solid #eee;padding-top:10px}</style></head>
-  <body>
-  <h1>⚙ ЗАВОД БУХ — Залитые изделия (по датам)</h1>
-  <p style="color:#888;font-size:12px">Дата формирования: ${new Date().toLocaleDateString("ru-RU")}</p>
-  <h2>По датам</h2>
-  <table><thead><tr><th>Дата</th><th>Изделие</th><th>Количество (шт)</th><th>Примечание</th></tr></thead>
-  <tbody>${rows}</tbody></table>
-  <h2>Итого залито (все время)</h2>
-  <table><thead><tr><th>Изделие</th><th>Итого (шт)</th></tr></thead>
-  <tbody>${totalRows}</tbody></table>
-  <div class="footer">Сформировано: ${new Date().toLocaleDateString("ru-RU")} ${new Date().toLocaleTimeString("ru-RU")}</div>
-  </body></html>`;
-  const w=window.open("","_blank");w.document.write(html);w.document.close();setTimeout(()=>w.print(),500);
+  const w=window.open("","_blank");
+  w.document.write(html);
+  w.document.close();
+  setTimeout(()=>w.print(),500);
 }
 
 function renderStockTable(title, bal, showHistory){
