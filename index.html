@@ -1118,6 +1118,15 @@ function renderStock(){
       html += '<div class="flex"><button class="btn btn-green" onclick="saveWarehouse()">Создать</button><button class="btn btn-dark" onclick="showWarehouseForm=false;renderStock()">Отмена</button></div></div>';
     }
 
+    // ---- DETAIL VIEW early return ----
+    if(selectedStockItem && (activeWarehouseId==="main" || activeWarehouseId==="combined")){
+      const detailBal = activeWarehouseId==="main" ? mainBal : combinedBal;
+      html += renderStockTable(activeWarehouseId==="main"?"Текущий склад":"Общие остатки", detailBal, false);
+      html += '<div style="position:sticky;bottom:0;padding:10px 0 4px;background:linear-gradient(to top,#0f1117 80%,transparent);margin-top:8px"><button onclick="printStockReport(activeWarehouseId)" style="width:100%;padding:14px;font-size:15px;font-weight:700;background:#1e3a5f;color:#fff;border:none;border-radius:12px;cursor:pointer">🖨 Сохранить / Распечатать PDF</button></div>';
+      document.getElementById("page-stock").innerHTML=html;
+      return;
+    }
+
     // ---- MAIN ----
     if(activeWarehouseId==="main"){
       html += renderStockTable("Текущий склад", mainBal, true);
@@ -1411,22 +1420,68 @@ function printDefects(){
 
 function renderStockTable(title, bal, showHistory){
   if(!bal) bal={};
-  let html=`<div class="card" style="padding:0;overflow:hidden;margin-bottom:14px">
-    <div style="padding:10px 14px;border-bottom:1px solid #2a2f3e;font-weight:700;font-size:13px">${title} — Остатки</div>
-    <div class="table-wrap"><table>
-      <thead><tr>
-        <th style="text-align:left">Наименование</th>
-        <th style="text-align:right">Изготовлено</th>
-        <th style="text-align:right">Отгружено</th>
-        <th style="text-align:right">Остаток</th>
-      </tr></thead>
-      <tbody>${STOCK_ITEMS.map(item=>{
-        const b=bal[item]||{produced:0,shipped:0,balance:0};
-        return '<tr style="border-top:1px solid #1a1f2e"><td style="padding:8px 10px;color:#c4cad8;font-weight:600">'+item+'</td><td class="mono" style="color:#22c55e;text-align:right;padding:8px 10px">'+(b.produced||0)+'</td><td class="mono" style="color:#f87171;text-align:right;padding:8px 10px">'+(b.shipped||0)+'</td><td class="mono" style="color:'+(b.balance<0?'#f87171':'#60a5fa')+';font-weight:700;text-align:right;padding:8px 10px">'+(b.balance||0)+'</td></tr>';
-      }).join("")}
-      </tbody>
-    </table></div>
-  </div>`;
+
+  // DETAIL VIEW — show positions for selected item
+  if(selectedStockItem){
+    const item = selectedStockItem;
+    const b = bal[item]||{produced:0,shipped:0,balance:0};
+
+    // Collect positions from castings grouped by name
+    const positions={};
+    (data.castings||[]).forEach(function(c){
+      const cat = c.category||c.item||"";
+      if(cat===item){
+        const pos = c.name||"—";
+        positions[pos]=(positions[pos]||0)+c.qty;
+      }
+    });
+    const posEntries = Object.entries(positions).sort(function(a,b){return b[1]-a[1];});
+
+    let html='<button onclick="selectedStockItem=null;renderStock()" style="background:#1e2433;border:1px solid #2a2f3e;color:#60a5fa;border-radius:8px;padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:12px;width:100%">← Назад к списку</button>';
+
+    html+='<div style="background:#161b27;border:1px solid #2563eb;border-radius:12px;overflow:hidden;margin-bottom:14px">';
+    // Header
+    html+='<div style="background:#1e3a5f;padding:12px 14px;display:flex;justify-content:space-between;align-items:center">';
+    html+='<span style="font-weight:800;font-size:16px;color:#e8eaf0">'+item+'</span>';
+    html+='<span style="font-family:Courier New,monospace;font-weight:800;font-size:18px;color:#60a5fa">'+(b.balance||0)+' шт</span>';
+    html+='</div>';
+    // Stats
+    html+='<div style="display:grid;grid-template-columns:1fr 1fr;border-bottom:1px solid #2a2f3e">';
+    html+='<div style="padding:10px 14px;border-right:1px solid #2a2f3e"><div style="color:#4a5568;font-size:11px;margin-bottom:2px">Изготовлено</div><div style="color:#22c55e;font-weight:700;font-size:16px;font-family:Courier New,monospace">'+(b.produced||0)+'</div></div>';
+    html+='<div style="padding:10px 14px"><div style="color:#4a5568;font-size:11px;margin-bottom:2px">Отгружено</div><div style="color:#f87171;font-weight:700;font-size:16px;font-family:Courier New,monospace">'+(b.shipped||0)+'</div></div>';
+    html+='</div>';
+
+    if(posEntries.length>0){
+      html+='<div style="padding:8px 14px;background:#0f1117;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#8892a0">Позиции</div>';
+      posEntries.forEach(function(entry){
+        const pos=entry[0], qty=entry[1];
+        html+='<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 14px;border-top:1px solid #1a1f2e">';
+        html+='<span style="color:#c4cad8;font-size:13px">— '+pos+'</span>';
+        html+='<span style="font-family:Courier New,monospace;font-weight:700;color:#a78bfa;font-size:14px">'+qty+' шт</span>';
+        html+='</div>';
+      });
+    } else {
+      html+='<div style="padding:12px 14px;color:#4a5568;font-size:13px">Нет данных по позициям</div>';
+    }
+    html+='</div>';
+    return html;
+  }
+
+  // NORMAL TABLE VIEW — each item is a tappable card
+  let html='<div style="background:#1e2433;border-radius:10px;padding:8px 14px;margin-bottom:10px;font-size:12px;color:#60a5fa">💡 Нажмите на изделие — увидите позиции</div>';
+  STOCK_ITEMS.forEach(function(item){
+    const b=bal[item]||{produced:0,shipped:0,balance:0};
+    html+='<button onclick="selectedStockItem=\''+item+'\';renderStock()" style="width:100%;background:#161b27;border:1px solid #2a2f3e;border-radius:12px;padding:12px 14px;margin-bottom:8px;cursor:pointer;text-align:left;-webkit-tap-highlight-color:rgba(96,165,250,0.15);display:block">';
+    html+='<div style="display:flex;justify-content:space-between;align-items:center">';
+    html+='<span style="color:#60a5fa;font-weight:700;font-size:14px;font-family:Nunito,sans-serif">'+item+'</span>';
+    html+='<span style="font-family:Courier New,monospace;font-weight:800;font-size:15px;color:'+(b.balance<0?'#f87171':'#60a5fa')+'">'+( b.balance||0)+' шт</span>';
+    html+='</div>';
+    html+='<div style="display:flex;gap:16px;margin-top:5px">';
+    html+='<span style="color:#22c55e;font-size:12px">↑ Изгот: '+(b.produced||0)+'</span>';
+    html+='<span style="color:#f87171;font-size:12px">↓ Отгр: '+(b.shipped||0)+'</span>';
+    html+='</div>';
+    html+='</button>';
+  });
   return html;
 }
 
