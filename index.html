@@ -283,7 +283,7 @@ function renderDashboard() {
   const m = new Date().getMonth(), y = new Date().getFullYear();
   let income=0, expense=0, dividends=0;
   const bal = {cash:0,kaspi:0,rbk:0};
-  data.transactions.forEach(t => {
+  (data.transactions||[]).forEach(t => {
     const d = new Date(t.date);
     if (d.getMonth()===m && d.getFullYear()===y) {
       if (t.type==="income") income+=t.amount;
@@ -294,7 +294,7 @@ function renderDashboard() {
     else bal[t.account]=(bal[t.account]||0)-t.amount;
   });
   const profit = income-expense-dividends;
-  const pending = data.orders.filter(o => getOrderPaid(o) < o.total);
+  const pending = (data.orders||[]).filter(o => getOrderPaid(o) < o.total);
 
   let html = `<div class="section-title">Дашборд</div>
   <div class="grid2" style="margin-bottom:10px">
@@ -332,7 +332,7 @@ let payFormData = {type:"Аванс",amount:"",date:today(),time:nowTime(),editI
 
 function renderOrders() {
   const isAdmin = currentUser.role==="admin";
-  let filtered = data.orders.filter(o =>
+  let filtered = (data.orders||[]).filter(o =>
     esc(o.client).toLowerCase().includes(orderSearch.toLowerCase()) ||
     String(o.num).includes(orderSearch)
   ).sort((a,b) => b.num-a.num);
@@ -1893,9 +1893,9 @@ function renderReports(){
     byCat[t.category][t.type]+=t.amount;
   });
   const bal={cash:0,kaspi:0,rbk:0};
-  data.transactions.forEach(t=>{if(t.type==="income")bal[t.account]=(bal[t.account]||0)+t.amount;else bal[t.account]=(bal[t.account]||0)-t.amount;});
+  (data.transactions||[]).forEach(t=>{if(t.type==="income")bal[t.account]=(bal[t.account]||0)+t.amount;else bal[t.account]=(bal[t.account]||0)-t.amount;});
   const byMonth={};
-  data.transactions.forEach(t=>{const k=t.date.slice(0,7);if(!byMonth[k])byMonth[k]={income:0,expense:0,dividend:0};if(t.type==="income")byMonth[k].income+=t.amount;else if(t.type==="expense")byMonth[k].expense+=t.amount;else byMonth[k].dividend+=t.amount;});
+  (data.transactions||[]).forEach(t=>{const k=t.date.slice(0,7);if(!byMonth[k])byMonth[k]={income:0,expense:0,dividend:0};if(t.type==="income")byMonth[k].income+=t.amount;else if(t.type==="expense")byMonth[k].expense+=t.amount;else byMonth[k].dividend+=t.amount;});
   const rbkIncome=filtered.filter(t=>t.type==="income"&&t.account==="rbk").reduce((s,t)=>s+t.amount,0);
   const profit=income-expense-dividend;
   const reports=["cashflow","pnl","balance","categories","monthly","vat","stock_main","stock_combined"];
@@ -2018,9 +2018,9 @@ function printReport(type) {
     byCat[t.category][t.type]+=t.amount;
   });
   const bal={cash:0,kaspi:0,rbk:0};
-  data.transactions.forEach(t=>{if(t.type==="income")bal[t.account]=(bal[t.account]||0)+t.amount;else bal[t.account]=(bal[t.account]||0)-t.amount;});
+  (data.transactions||[]).forEach(t=>{if(t.type==="income")bal[t.account]=(bal[t.account]||0)+t.amount;else bal[t.account]=(bal[t.account]||0)-t.amount;});
   const byMonth={};
-  data.transactions.forEach(t=>{const k=t.date.slice(0,7);if(!byMonth[k])byMonth[k]={income:0,expense:0,dividend:0};if(t.type==="income")byMonth[k].income+=t.amount;else if(t.type==="expense")byMonth[k].expense+=t.amount;else byMonth[k].dividend+=t.amount;});
+  (data.transactions||[]).forEach(t=>{const k=t.date.slice(0,7);if(!byMonth[k])byMonth[k]={income:0,expense:0,dividend:0};if(t.type==="income")byMonth[k].income+=t.amount;else if(t.type==="expense")byMonth[k].expense+=t.amount;else byMonth[k].dividend+=t.amount;});
   const rbkIncome=filtered.filter(t=>t.type==="income"&&t.account==="rbk").reduce((s,t)=>s+t.amount,0);
   const profit=income-expense-dividend;
   const rLabels={"cashflow":"Cash Flow","pnl":"Прибыль и убытки (P&L)","balance":"Баланс счетов","categories":"По категориям","monthly":"По месяцам","vat":"НДС отчёт","stock_main":"Склад (текущий)","stock_combined":"Склад (общие остатки)"};
