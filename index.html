@@ -1520,72 +1520,156 @@ async function deleteWarehouse(whId){
 }
 
 function printStockReport(whId){
-  let title, bal={};
-  STOCK_ITEMS.forEach(i=>bal[i]={produced:0,shipped:0,balance:0});
 
-  if(whId==="combined"){
-    title="Общие остатки (все склады)";
-    (data.stock||[]).forEach(m=>{
+  // SMART: if detail view is open — print item with positions
+  if(selectedStockItem){
+    const item = selectedStockItem;
+
+    // Build balance
+    const bal={};
+    STOCK_ITEMS.forEach(function(i){bal[i]={produced:0,shipped:0,balance:0};});
+    (data.stock||[]).forEach(function(m){
+      if(!bal[m.item])bal[m.item]={produced:0,shipped:0,balance:0};
       if(m.type==="produced"){bal[m.item].produced+=m.qty;bal[m.item].balance+=m.qty;}
       else if(m.type==="shipped"){bal[m.item].shipped+=m.qty;bal[m.item].balance-=m.qty;}
-      else if(m.type==="received") bal[m.item].balance+=m.qty;
-      else if(m.type==="used") bal[m.item].balance-=m.qty;
+      else if(m.type==="received")bal[m.item].balance+=m.qty;
+      else if(m.type==="used")bal[m.item].balance-=m.qty;
     });
-    (data.castings||[]).forEach(c=>{
+    (data.castings||[]).forEach(function(c){
       const key=c.category||c.item||"";
       if(bal[key]!==undefined){bal[key].produced+=c.qty;bal[key].balance+=c.qty;}
     });
-    (data.warehouses||[]).forEach(wh=>{
-      (wh.items||[]).forEach(wi=>{
+    const b=bal[item]||{produced:0,shipped:0,balance:0};
+
+    // Positions
+    const positions={};
+    (data.castings||[]).forEach(function(c){
+      const cat=c.category||c.item||"";
+      if(cat===item){
+        const pos=c.name||"—";
+        positions[pos]=(positions[pos]||0)+c.qty;
+      }
+    });
+    const posEntries=Object.entries(positions).sort(function(a,b){return b[1]-a[1];});
+
+    let posRows="";
+    posEntries.forEach(function(entry){
+      posRows+="<tr><td style='padding-left:20px;color:#555'>— "+entry[0]+"</td><td align='right' style='font-weight:bold;color:#7c3aed'>"+entry[1]+"</td></tr>";
+    });
+
+    const html="<html><head><title>"+item+"</title>"
+      +"<style>"
+      +"body{font-family:Arial;padding:24px;font-size:13px;color:#222}"
+      +"h1{font-size:20px;margin-bottom:4px}"
+      +"h2{font-size:14px;margin:16px 0 8px;color:#555;border-bottom:2px solid #2563eb;padding-bottom:4px}"
+      +"table{width:100%;border-collapse:collapse;margin-bottom:16px}"
+      +"th{background:#f0f4ff;padding:8px 10px;text-align:left;border:1px solid #ddd;font-size:12px}"
+      +"td{padding:7px 10px;border:1px solid #eee}"
+      +"tr:nth-child(even){background:#fafafa}"
+      +".footer{margin-top:24px;color:#aaa;font-size:11px;border-top:1px solid #eee;padding-top:10px}"
+      +"@media print{button{display:none}}"
+      +"</style></head><body>"
+      +"<h1>⚙ ЗАВОД БУХ — "+item+"</h1>"
+      +"<p style='color:#888;font-size:12px'>Дата: "+new Date().toLocaleDateString("ru-RU")+"</p>"
+      +"<h2>Остаток</h2>"
+      +"<table><tr>"
+      +"<th>Остаток</th><th>Изготовлено</th><th>Отгружено</th>"
+      +"</tr><tr>"
+      +"<td style='font-size:18px;font-weight:bold;color:blue'>"+(b.balance||0)+" шт</td>"
+      +"<td style='color:green;font-weight:bold'>"+(b.produced||0)+"</td>"
+      +"<td style='color:red;font-weight:bold'>"+(b.shipped||0)+"</td>"
+      +"</tr></table>"
+      +(posEntries.length>0
+        ? "<h2>Позиции (из залитых изделий)</h2>"
+          +"<table><thead><tr><th>Позиция</th><th style='text-align:right'>Кол-во (шт)</th></tr></thead><tbody>"
+          +"<tr style='background:#f3f0ff'><td><b>"+item+" — Итого</b></td><td align='right' style='font-weight:bold;color:#7c3aed;font-size:15px'>"+(b.produced||0)+"</td></tr>"
+          +posRows
+          +"</tbody></table>"
+        : "<p style='color:#888'>Нет данных по позициям</p>")
+      +"<div class='footer'>Сформировано: "+new Date().toLocaleDateString("ru-RU")+" "+new Date().toLocaleTimeString("ru-RU")+"</div>"
+      +"</body></html>";
+
+    const w=window.open("","_blank");
+    w.document.write(html);
+    w.document.close();
+    setTimeout(function(){w.print();},500);
+    return;
+  }
+
+  // NORMAL: print full warehouse table
+  let title, bal={};
+  STOCK_ITEMS.forEach(function(i){bal[i]={produced:0,shipped:0,balance:0};});
+
+  if(whId==="combined"){
+    title="Общие остатки (все склады)";
+    (data.stock||[]).forEach(function(m){
+      if(m.type==="produced"){bal[m.item].produced+=m.qty;bal[m.item].balance+=m.qty;}
+      else if(m.type==="shipped"){bal[m.item].shipped+=m.qty;bal[m.item].balance-=m.qty;}
+      else if(m.type==="received")bal[m.item].balance+=m.qty;
+      else if(m.type==="used")bal[m.item].balance-=m.qty;
+    });
+    (data.castings||[]).forEach(function(c){
+      const key=c.category||c.item||"";
+      if(bal[key]!==undefined){bal[key].produced+=c.qty;bal[key].balance+=c.qty;}
+    });
+    (data.warehouses||[]).forEach(function(wh){
+      (wh.items||[]).forEach(function(wi){
         if(!bal[wi.item])bal[wi.item]={produced:0,shipped:0,balance:0};
         bal[wi.item].balance+=wi.qty;
       });
     });
   } else if(whId==="main"){
     title="Текущий склад";
-    (data.stock||[]).forEach(m=>{
+    (data.stock||[]).forEach(function(m){
       if(m.type==="produced"){bal[m.item].produced+=m.qty;bal[m.item].balance+=m.qty;}
       else if(m.type==="shipped"){bal[m.item].shipped+=m.qty;bal[m.item].balance-=m.qty;}
-      else if(m.type==="received") bal[m.item].balance+=m.qty;
-      else if(m.type==="used") bal[m.item].balance-=m.qty;
+      else if(m.type==="received")bal[m.item].balance+=m.qty;
+      else if(m.type==="used")bal[m.item].balance-=m.qty;
     });
-    (data.castings||[]).forEach(c=>{
+    (data.castings||[]).forEach(function(c){
       const key=c.category||c.item||"";
       if(bal[key]!==undefined){bal[key].produced+=c.qty;bal[key].balance+=c.qty;}
     });
   } else {
-    const wh=(data.warehouses||[]).find(w=>w.id===whId);
+    const wh=(data.warehouses||[]).find(function(w){return w.id===whId;});
     title=wh?wh.name:"Архивный склад";
-    (wh?.items||[]).forEach(wi=>{
+    (wh?wh.items||[]:[]).forEach(function(wi){
       if(!bal[wi.item])bal[wi.item]={produced:0,shipped:0,balance:0};
       bal[wi.item].balance+=wi.qty;
     });
   }
 
-  let rows="<table><tr><th>Наименование</th><th>Изготовлено</th><th>Отгружено</th><th>Остаток</th></tr>";
-  STOCK_ITEMS.forEach(item=>{
+  let rows="<table><thead><tr><th>Наименование</th><th style='text-align:right'>Изготовлено</th><th style='text-align:right'>Отгружено</th><th style='text-align:right'>Остаток</th></tr></thead><tbody>";
+  STOCK_ITEMS.forEach(function(item){
     const b=bal[item]||{produced:0,shipped:0,balance:0};
-    rows+=`<tr><td>${item}</td><td style="color:green;text-align:right">${b.produced||0}</td><td style="color:red;text-align:right">${b.shipped||0}</td><td style="font-weight:bold;text-align:right;color:${b.balance<0?'red':'blue'}">${b.balance||0}</td></tr>`;
+    rows+="<tr><td>"+item+"</td>"
+      +"<td style='text-align:right;color:green'>"+(b.produced||0)+"</td>"
+      +"<td style='text-align:right;color:red'>"+(b.shipped||0)+"</td>"
+      +"<td style='text-align:right;font-weight:bold;color:"+(b.balance<0?"red":"blue")+"'>"+(b.balance||0)+"</td></tr>";
   });
-  rows+="</table>";
+  rows+="</tbody></table>";
 
-  const html=`<html><head><title>Склад — ${title}</title>
-  <style>body{font-family:Arial;padding:24px;font-size:13px}h1{font-size:18px;margin-bottom:4px}
-  table{width:100%;border-collapse:collapse}
-  th{background:#f0f4ff;padding:8px 10px;text-align:left;border:1px solid #ddd;font-size:12px}
-  td{padding:8px 10px;border:1px solid #ddd}tr:nth-child(even){background:#fafafa}
-  .footer{margin-top:24px;color:#aaa;font-size:11px;border-top:1px solid #eee;padding-top:10px}
-  @media print{button{display:none}}</style></head>
-  <body>
-  <h1>⚙ ЗАВОД БУХ — ${title}</h1>
-  <p style="color:#888;font-size:12px">Дата: ${new Date().toLocaleDateString("ru-RU")}</p>
-  ${rows}
-  <div class="footer">Сформировано: ${new Date().toLocaleDateString("ru-RU")} ${new Date().toLocaleTimeString("ru-RU")}</div>
-  </body></html>`;
+  const html="<html><head><title>Склад — "+title+"</title>"
+    +"<style>"
+    +"body{font-family:Arial;padding:24px;font-size:13px}"
+    +"h1{font-size:18px;margin-bottom:4px}"
+    +"table{width:100%;border-collapse:collapse}"
+    +"th{background:#f0f4ff;padding:8px 10px;text-align:left;border:1px solid #ddd;font-size:12px}"
+    +"td{padding:8px 10px;border:1px solid #ddd}"
+    +"tr:nth-child(even){background:#fafafa}"
+    +".footer{margin-top:24px;color:#aaa;font-size:11px;border-top:1px solid #eee;padding-top:10px}"
+    +"@media print{button{display:none}}"
+    +"</style></head><body>"
+    +"<h1>⚙ ЗАВОД БУХ — "+title+"</h1>"
+    +"<p style='color:#888;font-size:12px'>Дата: "+new Date().toLocaleDateString("ru-RU")+"</p>"
+    +rows
+    +"<div class='footer'>Сформировано: "+new Date().toLocaleDateString("ru-RU")+" "+new Date().toLocaleTimeString("ru-RU")+"</div>"
+    +"</body></html>";
+
   const w=window.open("","_blank");
   w.document.write(html);
   w.document.close();
-  setTimeout(()=>w.print(),500);
+  setTimeout(function(){w.print();},500);
 }
 
 async function saveStock(){
