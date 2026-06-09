@@ -1118,6 +1118,14 @@ function renderStock(){
       html += '<div class="flex"><button class="btn btn-green" onclick="saveWarehouse()">Создать</button><button class="btn btn-dark" onclick="showWarehouseForm=false;renderStock()">Отмена</button></div></div>';
     }
 
+    // ---- If item detail selected, show only detail + PDF ----
+    if(selectedStockItem && (activeWarehouseId==="main" || activeWarehouseId==="combined")){
+      html += renderStockTable(activeWarehouseId==="main"?"Текущий склад":"Общие остатки", activeWarehouseId==="main"?mainBal:combinedBal, false);
+      html += '<div style="position:sticky;bottom:0;padding:10px 0 4px;background:linear-gradient(to top,#0f1117 80%,transparent);margin-top:8px"><button onclick="printCurrentStock()" style="width:100%;padding:14px;font-size:15px;font-weight:700;background:#1e3a5f;color:#fff;border:none;border-radius:12px;cursor:pointer">🖨 Сохранить / Распечатать PDF</button></div>';
+      document.getElementById("page-stock").innerHTML=html;
+      return;
+    }
+
     // ---- MAIN ----
     if(activeWarehouseId==="main"){
       html += renderStockTable("Текущий склад", mainBal, true);
@@ -1173,7 +1181,7 @@ function renderStock(){
       html += '<div style="margin-top:12px"><button class="btn" style="width:100%;background:#1e3a5f" onclick="printStockReport(\''+wh.id+'\')">🖨 Распечатать</button></div>';
     }
 
-    html += '<div style="position:sticky;bottom:0;padding:10px 0 4px;background:linear-gradient(to top,#0f1117 80%,transparent);margin-top:8px"><button onclick="printStockReport(activeWarehouseId)" style="width:100%;padding:14px;font-size:15px;font-weight:700;background:#1e3a5f;color:#fff;border:none;border-radius:12px;cursor:pointer">🖨 Сохранить / Распечатать PDF</button></div>';
+    html += '<div style="position:sticky;bottom:0;padding:10px 0 4px;background:linear-gradient(to top,#0f1117 80%,transparent);margin-top:8px"><button onclick="printCurrentStock()" style="width:100%;padding:14px;font-size:15px;font-weight:700;background:#1e3a5f;color:#fff;border:none;border-radius:12px;cursor:pointer">🖨 Сохранить / Распечатать PDF</button></div>';
     document.getElementById("page-stock").innerHTML=html;
 
   } catch(e) {
@@ -1518,6 +1526,10 @@ async function deleteWarehouse(whId){
   if(!confirm("Удалить этот архивный склад? Все данные будут удалены."))return;
   await db.collection("warehouses").doc(whId).delete();
   activeWarehouseId="main";
+}
+
+function printCurrentStock(){
+  printStockReport(activeWarehouseId);
 }
 
 function printStockReport(whId){
