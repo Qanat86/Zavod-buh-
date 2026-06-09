@@ -1974,7 +1974,6 @@ function renderReports(){
     const whId=reportType==="stock_main"?"main":"combined";
     html+=`<div style="text-align:center;padding:20px">
       <div style="color:#8892a0;margin-bottom:16px;font-size:13px">${reportType==="stock_main"?"Остатки текущего склада":"Общие остатки всех складов"}</div>
-      <button class="btn" style="background:#1e3a5f;padding:14px 24px;font-size:15px" onclick="printStockReport('${whId}')">🖨 Распечатать / PDF</button>
     </div>`;
     // Also show archive warehouses as options
     if(reportType==="stock_combined"&&data.warehouses.length){
@@ -1995,9 +1994,6 @@ function renderReports(){
     html+=`</div><div style="color:#4a5568;font-size:11px;margin-top:10px">* Kaspi и Наличка — без НДС</div>`;
   }
   html += `<div style="margin-top:20px">
-    <button class="btn" style="width:100%;padding:14px;font-size:15px;background:#1e3a5f" onclick="printReport('${reportType}')">🖨 Распечатать / Сохранить PDF</button>
-  </div>`;
-
   html += `<div style="position:sticky;bottom:0;padding:10px 0 4px;background:linear-gradient(to top,#0f1117 80%,transparent);margin-top:8px">
     <button onclick="printReport(reportType)" style="width:100%;padding:14px;font-size:15px;font-weight:700;background:#1e3a5f;color:#fff;border:none;border-radius:12px;cursor:pointer;font-family:'Nunito',sans-serif;box-shadow:0 4px 16px rgba(0,0,0,0.4)">
       🖨 Сохранить / Распечатать PDF
