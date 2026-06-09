@@ -1123,8 +1123,9 @@ function renderStock(){
       const detailBal = activeWarehouseId==="main" ? mainBal : combinedBal;
       html += renderStockTable(activeWarehouseId==="main"?"Текущий склад":"Общие остатки", detailBal, false);
       const _item = selectedStockItem;
-      html += '<div style="position:sticky;bottom:0;padding:10px 0 4px;background:linear-gradient(to top,#0f1117 80%,transparent);margin-top:8px"><button onclick="printStockItemDetail(\''+_item+'\')" style="width:100%;padding:14px;font-size:15px;font-weight:700;background:#1e3a5f;color:#fff;border:none;border-radius:12px;cursor:pointer">🖨 Сохранить / Распечатать PDF</button></div>';
+      html += "<div style='position:sticky;bottom:0;padding:10px 0 4px;background:linear-gradient(to top,#0f1117 80%,transparent);margin-top:8px'><button id='stock-pdf-btn' style='width:100%;padding:14px;font-size:15px;font-weight:700;background:#1e3a5f;color:#fff;border:none;border-radius:12px;cursor:pointer'>🖨 Сохранить / Распечатать PDF</button></div>";
       document.getElementById("page-stock").innerHTML=html;
+      document.getElementById("stock-pdf-btn").addEventListener("click", function(){ printStockItemDetail(_item); });
       return;
     }
 
