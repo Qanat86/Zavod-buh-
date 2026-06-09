@@ -1465,27 +1465,23 @@ function renderStockTable(title, bal, showHistory){
   }
 
   // Normal table view — items are clickable
-  let html=`<div class="card" style="padding:0;overflow:hidden;margin-bottom:14px">
-    <div style="padding:10px 14px;border-bottom:1px solid #2a2f3e;font-weight:700;font-size:13px">${title} — Остатки</div>
-    <div style="padding:8px 14px;background:#1e2433;font-size:11px;color:#60a5fa">💡 Нажмите на изделие для детализации по позициям</div>
-    <div class="table-wrap"><table>
-      <thead><tr>
-        <th style="text-align:left">Наименование</th>
-        <th style="text-align:right">Изготовлено</th>
-        <th style="text-align:right">Отгружено</th>
-        <th style="text-align:right">Остаток</th>
-      </tr></thead>
-      <tbody>${STOCK_ITEMS.map(item=>{
-        const b=bal[item]||{produced:0,shipped:0,balance:0};
-        return `<tr onclick="selectedStockItem='${item}';renderStock()" style="cursor:pointer;border-top:1px solid #1a1f2e" onmouseover="this.style.background='#1e2433'" onmouseout="this.style.background=''">
-          <td style="padding:8px 10px;color:#60a5fa;font-weight:600;text-decoration:underline;text-decoration-style:dotted">${item}</td>
-          <td class="mono" style="color:#22c55e;text-align:right">${b.produced||0}</td>
-          <td class="mono" style="color:#f87171;text-align:right">${b.shipped||0}</td>
-          <td class="mono" style="color:${b.balance<0?'#f87171':'#60a5fa'};font-weight:700;text-align:right">${b.balance||0}</td>
-        </tr>`;
-      }).join("")}
-      </tbody>
-    </table></div>
+  // Card list — each item is a tappable button
+  let html=`<div style="margin-bottom:14px">
+    <div style="padding:8px 14px;background:#1e2433;border-radius:10px;font-size:11px;color:#60a5fa;margin-bottom:8px">💡 Нажмите на изделие для детализации</div>
+    ${STOCK_ITEMS.map(item=>{
+      const b=bal[item]||{produced:0,shipped:0,balance:0};
+      return `<button onclick="selectedStockItem='`+"`"+`${item}`+"`"+`';renderStock()"
+        style="width:100%;background:#161b27;border:1px solid #2a2f3e;border-radius:12px;padding:12px 14px;margin-bottom:8px;cursor:pointer;text-align:left;display:block;-webkit-tap-highlight-color:rgba(96,165,250,0.2)">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span style="color:#60a5fa;font-weight:700;font-size:14px;font-family:Nunito,sans-serif">${item}</span>
+          <span style="font-family:Courier New,monospace;font-weight:800;font-size:16px;color:${b.balance<0?'#f87171':'#60a5fa'}">${b.balance||0} шт</span>
+        </div>
+        <div style="display:flex;gap:16px;margin-top:6px">
+          <span style="color:#22c55e;font-size:12px;font-family:Nunito,sans-serif">↑ Изгот: ${b.produced||0}</span>
+          <span style="color:#f87171;font-size:12px;font-family:Nunito,sans-serif">↓ Отгр: ${b.shipped||0}</span>
+        </div>
+      </button>`;
+    }).join("")}
   </div>`;
   return html;
 }
