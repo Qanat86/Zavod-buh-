@@ -1896,7 +1896,7 @@ function renderReports(){
   const rbkIncome=filtered.filter(t=>t.type==="income"&&t.account==="rbk").reduce((s,t)=>s+t.amount,0);
   const profit=income-expense-dividend;
   const reports=["cashflow","pnl","balance","categories","monthly","vat","stock_main","stock_combined"];
-  const rLabels={"cashflow":"Cash Flow","pnl":"P&L","balance":"Баланс","categories":"Категории","monthly":"По месяцам","vat":"НДС"};
+  const rLabels={"cashflow":"Cash Flow","pnl":"P&L","balance":"Баланс","categories":"Категории","monthly":"По месяцам","vat":"НДС","stock_main":"Склад (текущий)","stock_combined":"Склад (общий)"};
 
   let html=`<div class="section-title">Отчёты</div>
   <div class="flex" style="flex-wrap:wrap;margin-bottom:12px">
