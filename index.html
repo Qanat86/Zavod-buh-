@@ -1521,30 +1521,115 @@ async function deleteWarehouse(whId){
 }
 
 function printStockReport(whId){
+
+  // If a specific item is selected — print item detail with positions
+  if(selectedStockItem){
+    const item = selectedStockItem;
+
+    // Build balance for this warehouse
+    const bal={};
+    STOCK_ITEMS.forEach(i=>bal[i]={produced:0,shipped:0,balance:0});
+    (data.stock||[]).forEach(m=>{
+      if(!bal[m.item]) bal[m.item]={produced:0,shipped:0,balance:0};
+      if(m.type==="produced"){bal[m.item].produced+=m.qty;bal[m.item].balance+=m.qty;}
+      else if(m.type==="shipped"){bal[m.item].shipped+=m.qty;bal[m.item].balance-=m.qty;}
+      else if(m.type==="received") bal[m.item].balance+=m.qty;
+      else if(m.type==="used") bal[m.item].balance-=m.qty;
+    });
+    // Add castings to produced
+    (data.castings||[]).forEach(c=>{
+      const key=c.category||c.item||"";
+      if(bal[key]!==undefined){bal[key].produced+=c.qty;bal[key].balance+=c.qty;}
+    });
+    const b = bal[item]||{produced:0,shipped:0,balance:0};
+
+    // Positions from castings
+    const positions={};
+    (data.castings||[]).forEach(c=>{
+      const key=c.category||c.item||"";
+      if(key===item){
+        const pos=c.name||"—";
+        positions[pos]=(positions[pos]||0)+c.qty;
+      }
+    });
+
+    const posRows = Object.entries(positions)
+      .sort(([,a],[,b])=>b-a)
+      .map(([pos,qty])=>`<tr><td style="padding-left:20px;color:#444">— ${pos}</td><td align="right" style="font-weight:bold;color:#7c3aed">${qty}</td></tr>`)
+      .join("");
+
+    const html=`<html><head><title>${item}</title>
+    <style>
+      body{font-family:Arial;padding:24px;font-size:13px;color:#222}
+      h1{font-size:20px;margin-bottom:4px}
+      h2{font-size:14px;margin:16px 0 8px;color:#555;border-bottom:2px solid #2563eb;padding-bottom:4px}
+      table{width:100%;border-collapse:collapse;margin-bottom:16px}
+      th{background:#f0f4ff;padding:8px 10px;text-align:left;border:1px solid #ddd;font-size:12px}
+      td{padding:7px 10px;border:1px solid #eee}
+      .stat{display:inline-block;margin-right:24px;font-size:14px}
+      .footer{margin-top:24px;color:#aaa;font-size:11px;border-top:1px solid #eee;padding-top:10px}
+      @media print{button{display:none}}
+    </style></head>
+    <body>
+    <h1>⚙ ЗАВОД БУХ — ${item}</h1>
+    <p style="color:#888;font-size:12px">Дата: ${new Date().toLocaleDateString("ru-RU")}</p>
+    <h2>Остаток</h2>
+    <p>
+      <span class="stat">Остаток: <b style="font-size:18px;color:#2563eb">${b.balance||0} шт</b></span>
+      <span class="stat">Изготовлено: <b style="color:green">${b.produced||0}</b></span>
+      <span class="stat">Отгружено: <b style="color:red">${b.shipped||0}</b></span>
+    </p>
+    ${Object.keys(positions).length>0?`
+    <h2>Позиции (из залитых изделий)</h2>
+    <table>
+      <thead><tr><th>Позиция</th><th style="text-align:right">Кол-во (шт)</th></tr></thead>
+      <tbody>
+        <tr style="background:#f3f0ff"><td><b>${item} — Итого</b></td><td align="right"><b style="color:#7c3aed;font-size:15px">${b.produced||0}</b></td></tr>
+        ${posRows}
+      </tbody>
+    </table>`:'<p style="color:#888">Позиции не найдены в залитых изделиях</p>'}
+    <div class="footer">Сформировано: ${new Date().toLocaleDateString("ru-RU")} ${new Date().toLocaleTimeString("ru-RU")}</div>
+    </body></html>`;
+    const w=window.open("","_blank");
+    w.document.write(html);
+    w.document.close();
+    setTimeout(()=>w.print(),500);
+    return;
+  }
+
+  // Normal warehouse report
   let title,rows="",bal={};
   STOCK_ITEMS.forEach(i=>bal[i]={produced:0,shipped:0,balance:0});
 
   if(whId==="combined"){
     title="Общие остатки (все склады)";
-    data.stock.forEach(m=>{
+    (data.stock||[]).forEach(m=>{
       if(m.type==="produced"){bal[m.item].produced+=m.qty;bal[m.item].balance+=m.qty;}
       else if(m.type==="shipped"){bal[m.item].shipped+=m.qty;bal[m.item].balance-=m.qty;}
       else if(m.type==="received")bal[m.item].balance+=m.qty;
       else if(m.type==="used")bal[m.item].balance-=m.qty;
     });
-    data.warehouses.forEach(wh=>{
+    (data.castings||[]).forEach(c=>{
+      const key=c.category||c.item||"";
+      if(bal[key]!==undefined){bal[key].produced+=c.qty;bal[key].balance+=c.qty;}
+    });
+    (data.warehouses||[]).forEach(wh=>{
       (wh.items||[]).forEach(wi=>{if(!bal[wi.item])bal[wi.item]={produced:0,shipped:0,balance:0};bal[wi.item].balance+=wi.qty;});
     });
   } else if(whId==="main"){
     title="Текущий склад";
-    data.stock.forEach(m=>{
+    (data.stock||[]).forEach(m=>{
       if(m.type==="produced"){bal[m.item].produced+=m.qty;bal[m.item].balance+=m.qty;}
       else if(m.type==="shipped"){bal[m.item].shipped+=m.qty;bal[m.item].balance-=m.qty;}
       else if(m.type==="received")bal[m.item].balance+=m.qty;
       else if(m.type==="used")bal[m.item].balance-=m.qty;
     });
+    (data.castings||[]).forEach(c=>{
+      const key=c.category||c.item||"";
+      if(bal[key]!==undefined){bal[key].produced+=c.qty;bal[key].balance+=c.qty;}
+    });
   } else {
-    const wh=data.warehouses.find(w=>w.id===whId);
+    const wh=(data.warehouses||[]).find(w=>w.id===whId);
     title=wh?wh.name:"Архивный склад";
     (wh?.items||[]).forEach(wi=>{if(!bal[wi.item])bal[wi.item]={produced:0,shipped:0,balance:0};bal[wi.item].balance+=wi.qty;});
   }
@@ -1558,12 +1643,12 @@ function printStockReport(whId){
 
   const html=`<html><head><title>Склад — ${title}</title>
   <style>body{font-family:Arial;padding:24px;font-size:13px}h1{font-size:18px;margin-bottom:4px}
-  .period{color:#888;font-size:12px;margin-bottom:20px}
   table{width:100%;border-collapse:collapse}th{background:#f0f4ff;padding:8px;text-align:left;border:1px solid #ddd}
   td{padding:8px;border:1px solid #ddd}tr:nth-child(even){background:#fafafa}
-  .footer{margin-top:24px;color:#aaa;font-size:11px;border-top:1px solid #eee;padding-top:10px}</style></head>
+  .footer{margin-top:24px;color:#aaa;font-size:11px;border-top:1px solid #eee;padding-top:10px}
+  @media print{button{display:none}}</style></head>
   <body><h1>⚙ ЗАВОД БУХ — ${title}</h1>
-  <div class="period">Дата формирования: ${new Date().toLocaleDateString("ru-RU")}</div>
+  <p style="color:#888;font-size:12px">Дата: ${new Date().toLocaleDateString("ru-RU")}</p>
   ${rows}
   <div class="footer">Сформировано: ${new Date().toLocaleDateString("ru-RU")} ${new Date().toLocaleTimeString("ru-RU")}</div>
   </body></html>`;
