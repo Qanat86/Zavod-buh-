@@ -1118,14 +1118,6 @@ function renderStock(){
       html += '<div class="flex"><button class="btn btn-green" onclick="saveWarehouse()">Создать</button><button class="btn btn-dark" onclick="showWarehouseForm=false;renderStock()">Отмена</button></div></div>';
     }
 
-    // ---- If item detail selected, show only detail + PDF ----
-    if(selectedStockItem && (activeWarehouseId==="main" || activeWarehouseId==="combined")){
-      html += renderStockTable(activeWarehouseId==="main"?"Текущий склад":"Общие остатки", activeWarehouseId==="main"?mainBal:combinedBal, false);
-      html += '<div style="position:sticky;bottom:0;padding:10px 0 4px;background:linear-gradient(to top,#0f1117 80%,transparent);margin-top:8px"><button onclick="printCurrentStock()" style="width:100%;padding:14px;font-size:15px;font-weight:700;background:#1e3a5f;color:#fff;border:none;border-radius:12px;cursor:pointer">🖨 Сохранить / Распечатать PDF</button></div>';
-      document.getElementById("page-stock").innerHTML=html;
-      return;
-    }
-
     // ---- MAIN ----
     if(activeWarehouseId==="main"){
       html += renderStockTable("Текущий склад", mainBal, true);
@@ -1181,7 +1173,7 @@ function renderStock(){
       html += '<div style="margin-top:12px"><button class="btn" style="width:100%;background:#1e3a5f" onclick="printStockReport(\''+wh.id+'\')">🖨 Распечатать</button></div>';
     }
 
-    html += '<div style="position:sticky;bottom:0;padding:10px 0 4px;background:linear-gradient(to top,#0f1117 80%,transparent);margin-top:8px"><button onclick="printCurrentStock()" style="width:100%;padding:14px;font-size:15px;font-weight:700;background:#1e3a5f;color:#fff;border:none;border-radius:12px;cursor:pointer">🖨 Сохранить / Распечатать PDF</button></div>';
+    html += '<div style="position:sticky;bottom:0;padding:10px 0 4px;background:linear-gradient(to top,#0f1117 80%,transparent);margin-top:8px"><button onclick="printStockReport(activeWarehouseId)" style="width:100%;padding:14px;font-size:15px;font-weight:700;background:#1e3a5f;color:#fff;border:none;border-radius:12px;cursor:pointer">🖨 Сохранить / Распечатать PDF</button></div>';
     document.getElementById("page-stock").innerHTML=html;
 
   } catch(e) {
@@ -1419,77 +1411,21 @@ function printDefects(){
 
 function renderStockTable(title, bal, showHistory){
   if(!bal) bal={};
-
-  // If an item is selected, show detail view
-  if(selectedStockItem){
-    const item = selectedStockItem;
-    const b = bal[item]||{produced:0,shipped:0,balance:0};
-
-    // Get positions from castings for this item
-    const positions={};
-    (data.castings||[]).forEach(c=>{
-      const key = c.category||c.item||"";
-      if(key===item){
-        const posName = c.name||"—";
-        positions[posName]=(positions[posName]||0)+c.qty;
-      }
-    });
-    const hasPositions = Object.keys(positions).length>0;
-
-    let html=`<div style="margin-bottom:14px">`;
-    // Back button
-    html+=`<button onclick="selectedStockItem=null;renderStock()" style="background:#1e2433;border:none;color:#60a5fa;border-radius:8px;padding:7px 14px;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:12px">← Назад</button>`;
-    // Item header
-    html+=`<div style="background:#161b27;border:1px solid #2563eb;border-radius:12px;overflow:hidden">`;
-    html+=`<div style="padding:12px 14px;background:#1e3a5f;display:flex;justify-content:space-between;align-items:center">`;
-    html+=`<div style="font-weight:800;font-size:16px;color:#e8eaf0">${item}</div>`;
-    html+=`<div style="font-family:Courier New,monospace;font-weight:800;font-size:18px;color:${b.balance<0?'#f87171':'#60a5fa'}">${b.balance||0} шт</div>`;
-    html+=`</div>`;
-    // Stats row
-    html+=`<div style="display:grid;grid-template-columns:1fr 1fr;gap:0;border-bottom:1px solid #2a2f3e">`;
-    html+=`<div style="padding:10px 14px;border-right:1px solid #2a2f3e"><div style="color:#4a5568;font-size:11px">Изготовлено</div><div style="color:#22c55e;font-weight:700;font-size:15px;font-family:Courier New,monospace">${b.produced||0}</div></div>`;
-    html+=`<div style="padding:10px 14px"><div style="color:#4a5568;font-size:11px">Отгружено</div><div style="color:#f87171;font-weight:700;font-size:15px;font-family:Courier New,monospace">${b.shipped||0}</div></div>`;
-    html+=`</div>`;
-
-    // Positions breakdown from castings
-    if(hasPositions){
-      html+=`<div style="padding:10px 14px;border-bottom:1px solid #2a2f3e;font-weight:700;font-size:12px;color:#8892a0;text-transform:uppercase;letter-spacing:1px">Позиции (из залитых изделий)</div>`;
-      html+=`<table style="width:100%;border-collapse:collapse">`;
-      html+=`<thead><tr style="background:#0f1117"><th style="padding:7px 14px;text-align:left;color:#4a5568;font-size:11px">Позиция</th><th style="padding:7px 14px;text-align:right;color:#4a5568;font-size:11px">Кол-во (шт)</th></tr></thead><tbody>`;
-      Object.entries(positions)
-        .sort(([,a],[,b])=>b-a)
-        .forEach(([pos,qty])=>{
-          html+=`<tr style="border-top:1px solid #1a1f2e">`;
-          html+=`<td style="padding:8px 14px;color:#c4cad8">— ${pos}</td>`;
-          html+=`<td style="padding:8px 14px;text-align:right;font-family:Courier New,monospace;font-weight:700;color:#a78bfa">${qty}</td>`;
-          html+=`</tr>`;
-        });
-      html+=`</tbody></table>`;
-    } else {
-      html+=`<div style="padding:12px 14px;color:#4a5568;font-size:13px">Позиции не найдены в залитых изделиях</div>`;
-    }
-    html+=`</div></div>`;
-    return html;
-  }
-
-  // Normal table view — items are clickable
-  // Card list — each item is a tappable button
-  let html=`<div style="margin-bottom:14px">
-    <div style="padding:8px 14px;background:#1e2433;border-radius:10px;font-size:11px;color:#60a5fa;margin-bottom:8px">💡 Нажмите на изделие для детализации</div>
-    ${STOCK_ITEMS.map(item=>{
-      const b=bal[item]||{produced:0,shipped:0,balance:0};
-      return `<button onclick="selectedStockItem='`+"`"+`${item}`+"`"+`';renderStock()"
-        style="width:100%;background:#161b27;border:1px solid #2a2f3e;border-radius:12px;padding:12px 14px;margin-bottom:8px;cursor:pointer;text-align:left;display:block;-webkit-tap-highlight-color:rgba(96,165,250,0.2)">
-        <div style="display:flex;justify-content:space-between;align-items:center">
-          <span style="color:#60a5fa;font-weight:700;font-size:14px;font-family:Nunito,sans-serif">${item}</span>
-          <span style="font-family:Courier New,monospace;font-weight:800;font-size:16px;color:${b.balance<0?'#f87171':'#60a5fa'}">${b.balance||0} шт</span>
-        </div>
-        <div style="display:flex;gap:16px;margin-top:6px">
-          <span style="color:#22c55e;font-size:12px;font-family:Nunito,sans-serif">↑ Изгот: ${b.produced||0}</span>
-          <span style="color:#f87171;font-size:12px;font-family:Nunito,sans-serif">↓ Отгр: ${b.shipped||0}</span>
-        </div>
-      </button>`;
-    }).join("")}
+  let html=`<div class="card" style="padding:0;overflow:hidden;margin-bottom:14px">
+    <div style="padding:10px 14px;border-bottom:1px solid #2a2f3e;font-weight:700;font-size:13px">${title} — Остатки</div>
+    <div class="table-wrap"><table>
+      <thead><tr>
+        <th style="text-align:left">Наименование</th>
+        <th style="text-align:right">Изготовлено</th>
+        <th style="text-align:right">Отгружено</th>
+        <th style="text-align:right">Остаток</th>
+      </tr></thead>
+      <tbody>${STOCK_ITEMS.map(item=>{
+        const b=bal[item]||{produced:0,shipped:0,balance:0};
+        return '<tr style="border-top:1px solid #1a1f2e"><td style="padding:8px 10px;color:#c4cad8;font-weight:600">'+item+'</td><td class="mono" style="color:#22c55e;text-align:right;padding:8px 10px">'+(b.produced||0)+'</td><td class="mono" style="color:#f87171;text-align:right;padding:8px 10px">'+(b.shipped||0)+'</td><td class="mono" style="color:'+(b.balance<0?'#f87171':'#60a5fa')+';font-weight:700;text-align:right;padding:8px 10px">'+(b.balance||0)+'</td></tr>';
+      }).join("")}
+      </tbody>
+    </table></div>
   </div>`;
   return html;
 }
@@ -1528,89 +1464,8 @@ async function deleteWarehouse(whId){
   activeWarehouseId="main";
 }
 
-function printCurrentStock(){
-  printStockReport(activeWarehouseId);
-}
-
 function printStockReport(whId){
-
-  // If a specific item is selected — print item detail with positions
-  if(selectedStockItem){
-    const item = selectedStockItem;
-
-    // Build balance for this warehouse
-    const bal={};
-    STOCK_ITEMS.forEach(i=>bal[i]={produced:0,shipped:0,balance:0});
-    (data.stock||[]).forEach(m=>{
-      if(!bal[m.item]) bal[m.item]={produced:0,shipped:0,balance:0};
-      if(m.type==="produced"){bal[m.item].produced+=m.qty;bal[m.item].balance+=m.qty;}
-      else if(m.type==="shipped"){bal[m.item].shipped+=m.qty;bal[m.item].balance-=m.qty;}
-      else if(m.type==="received") bal[m.item].balance+=m.qty;
-      else if(m.type==="used") bal[m.item].balance-=m.qty;
-    });
-    // Add castings to produced
-    (data.castings||[]).forEach(c=>{
-      const key=c.category||c.item||"";
-      if(bal[key]!==undefined){bal[key].produced+=c.qty;bal[key].balance+=c.qty;}
-    });
-    const b = bal[item]||{produced:0,shipped:0,balance:0};
-
-    // Positions from castings
-    const positions={};
-    (data.castings||[]).forEach(c=>{
-      const key=c.category||c.item||"";
-      if(key===item){
-        const pos=c.name||"—";
-        positions[pos]=(positions[pos]||0)+c.qty;
-      }
-    });
-
-    const posRows = Object.entries(positions)
-      .sort(([,a],[,b])=>b-a)
-      .map(([pos,qty])=>`<tr><td style="padding-left:20px;color:#444">— ${pos}</td><td align="right" style="font-weight:bold;color:#7c3aed">${qty}</td></tr>`)
-      .join("");
-
-    const html=`<html><head><title>${item}</title>
-    <style>
-      body{font-family:Arial;padding:24px;font-size:13px;color:#222}
-      h1{font-size:20px;margin-bottom:4px}
-      h2{font-size:14px;margin:16px 0 8px;color:#555;border-bottom:2px solid #2563eb;padding-bottom:4px}
-      table{width:100%;border-collapse:collapse;margin-bottom:16px}
-      th{background:#f0f4ff;padding:8px 10px;text-align:left;border:1px solid #ddd;font-size:12px}
-      td{padding:7px 10px;border:1px solid #eee}
-      .stat{display:inline-block;margin-right:24px;font-size:14px}
-      .footer{margin-top:24px;color:#aaa;font-size:11px;border-top:1px solid #eee;padding-top:10px}
-      @media print{button{display:none}}
-    </style></head>
-    <body>
-    <h1>⚙ ЗАВОД БУХ — ${item}</h1>
-    <p style="color:#888;font-size:12px">Дата: ${new Date().toLocaleDateString("ru-RU")}</p>
-    <h2>Остаток</h2>
-    <p>
-      <span class="stat">Остаток: <b style="font-size:18px;color:#2563eb">${b.balance||0} шт</b></span>
-      <span class="stat">Изготовлено: <b style="color:green">${b.produced||0}</b></span>
-      <span class="stat">Отгружено: <b style="color:red">${b.shipped||0}</b></span>
-    </p>
-    ${Object.keys(positions).length>0?`
-    <h2>Позиции (из залитых изделий)</h2>
-    <table>
-      <thead><tr><th>Позиция</th><th style="text-align:right">Кол-во (шт)</th></tr></thead>
-      <tbody>
-        <tr style="background:#f3f0ff"><td><b>${item} — Итого</b></td><td align="right"><b style="color:#7c3aed;font-size:15px">${b.produced||0}</b></td></tr>
-        ${posRows}
-      </tbody>
-    </table>`:'<p style="color:#888">Позиции не найдены в залитых изделиях</p>'}
-    <div class="footer">Сформировано: ${new Date().toLocaleDateString("ru-RU")} ${new Date().toLocaleTimeString("ru-RU")}</div>
-    </body></html>`;
-    const w=window.open("","_blank");
-    w.document.write(html);
-    w.document.close();
-    setTimeout(()=>w.print(),500);
-    return;
-  }
-
-  // Normal warehouse report
-  let title,rows="",bal={};
+  let title, bal={};
   STOCK_ITEMS.forEach(i=>bal[i]={produced:0,shipped:0,balance:0});
 
   if(whId==="combined"){
@@ -1618,23 +1473,26 @@ function printStockReport(whId){
     (data.stock||[]).forEach(m=>{
       if(m.type==="produced"){bal[m.item].produced+=m.qty;bal[m.item].balance+=m.qty;}
       else if(m.type==="shipped"){bal[m.item].shipped+=m.qty;bal[m.item].balance-=m.qty;}
-      else if(m.type==="received")bal[m.item].balance+=m.qty;
-      else if(m.type==="used")bal[m.item].balance-=m.qty;
+      else if(m.type==="received") bal[m.item].balance+=m.qty;
+      else if(m.type==="used") bal[m.item].balance-=m.qty;
     });
     (data.castings||[]).forEach(c=>{
       const key=c.category||c.item||"";
       if(bal[key]!==undefined){bal[key].produced+=c.qty;bal[key].balance+=c.qty;}
     });
     (data.warehouses||[]).forEach(wh=>{
-      (wh.items||[]).forEach(wi=>{if(!bal[wi.item])bal[wi.item]={produced:0,shipped:0,balance:0};bal[wi.item].balance+=wi.qty;});
+      (wh.items||[]).forEach(wi=>{
+        if(!bal[wi.item])bal[wi.item]={produced:0,shipped:0,balance:0};
+        bal[wi.item].balance+=wi.qty;
+      });
     });
   } else if(whId==="main"){
     title="Текущий склад";
     (data.stock||[]).forEach(m=>{
       if(m.type==="produced"){bal[m.item].produced+=m.qty;bal[m.item].balance+=m.qty;}
       else if(m.type==="shipped"){bal[m.item].shipped+=m.qty;bal[m.item].balance-=m.qty;}
-      else if(m.type==="received")bal[m.item].balance+=m.qty;
-      else if(m.type==="used")bal[m.item].balance-=m.qty;
+      else if(m.type==="received") bal[m.item].balance+=m.qty;
+      else if(m.type==="used") bal[m.item].balance-=m.qty;
     });
     (data.castings||[]).forEach(c=>{
       const key=c.category||c.item||"";
@@ -1643,28 +1501,36 @@ function printStockReport(whId){
   } else {
     const wh=(data.warehouses||[]).find(w=>w.id===whId);
     title=wh?wh.name:"Архивный склад";
-    (wh?.items||[]).forEach(wi=>{if(!bal[wi.item])bal[wi.item]={produced:0,shipped:0,balance:0};bal[wi.item].balance+=wi.qty;});
+    (wh?.items||[]).forEach(wi=>{
+      if(!bal[wi.item])bal[wi.item]={produced:0,shipped:0,balance:0};
+      bal[wi.item].balance+=wi.qty;
+    });
   }
 
-  rows=`<table><tr><th>Наименование</th><th>Изготовлено</th><th>Отгружено</th><th>Остаток</th></tr>`;
+  let rows="<table><tr><th>Наименование</th><th>Изготовлено</th><th>Отгружено</th><th>Остаток</th></tr>";
   STOCK_ITEMS.forEach(item=>{
     const b=bal[item]||{produced:0,shipped:0,balance:0};
-    rows+=`<tr><td>${item}</td><td style="color:green">${b.produced||0}</td><td style="color:red">${b.shipped||0}</td><td style="font-weight:bold;color:${b.balance<0?'red':'blue'}">${b.balance||0}</td></tr>`;
+    rows+=`<tr><td>${item}</td><td style="color:green;text-align:right">${b.produced||0}</td><td style="color:red;text-align:right">${b.shipped||0}</td><td style="font-weight:bold;text-align:right;color:${b.balance<0?'red':'blue'}">${b.balance||0}</td></tr>`;
   });
-  rows+=`</table>`;
+  rows+="</table>";
 
   const html=`<html><head><title>Склад — ${title}</title>
   <style>body{font-family:Arial;padding:24px;font-size:13px}h1{font-size:18px;margin-bottom:4px}
-  table{width:100%;border-collapse:collapse}th{background:#f0f4ff;padding:8px;text-align:left;border:1px solid #ddd}
-  td{padding:8px;border:1px solid #ddd}tr:nth-child(even){background:#fafafa}
+  table{width:100%;border-collapse:collapse}
+  th{background:#f0f4ff;padding:8px 10px;text-align:left;border:1px solid #ddd;font-size:12px}
+  td{padding:8px 10px;border:1px solid #ddd}tr:nth-child(even){background:#fafafa}
   .footer{margin-top:24px;color:#aaa;font-size:11px;border-top:1px solid #eee;padding-top:10px}
   @media print{button{display:none}}</style></head>
-  <body><h1>⚙ ЗАВОД БУХ — ${title}</h1>
+  <body>
+  <h1>⚙ ЗАВОД БУХ — ${title}</h1>
   <p style="color:#888;font-size:12px">Дата: ${new Date().toLocaleDateString("ru-RU")}</p>
   ${rows}
   <div class="footer">Сформировано: ${new Date().toLocaleDateString("ru-RU")} ${new Date().toLocaleTimeString("ru-RU")}</div>
   </body></html>`;
-  const w=window.open("","_blank");w.document.write(html);w.document.close();setTimeout(()=>w.print(),500);
+  const w=window.open("","_blank");
+  w.document.write(html);
+  w.document.close();
+  setTimeout(()=>w.print(),500);
 }
 
 async function saveStock(){
