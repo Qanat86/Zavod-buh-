@@ -1204,7 +1204,7 @@ if(defectFormData.lines.length<100){
         html += '<div style="color:#4a5568;font-size:11px;margin-bottom:4px">Контрагент / Примечание</div>';
         html += '<input type="text" id="inert-note" placeholder="Поставщик или примечание" value="'+(inertFormData.note||'')+'" oninput="inertFormData.note=this.value" style="margin-bottom:12px"/>';
         html += '<div class="flex"><button class="btn" style="background:#d97706;flex:1;font-size:14px" onclick="saveInert()">💾 Сохранить</button>';
-        html += '<button class="btn btn-dark" onclick="showInertForm=false;inertFormStep=0;inertFormData={material:\'Цемент\',type:\'debt\',date:today(),qty:\'\',price:\'\',note:\'\'};renderStock()">Отмена</button></div>';
+        html += '<button class="btn btn-dark" onclick="cancelInertForm()">Отмена</button></div>';
         html += '</div>';
       }
       html += '</div>';
@@ -1231,11 +1231,11 @@ if(defectFormData.lines.length<100){
       html += '<div class="card" style="border-color:#d97706;margin-bottom:14px">';
       html += '<div style="font-weight:700;font-size:14px;color:#f59e0b;margin-bottom:12px">📊 Остаток (вводится вручную)</div>';
       html += '<div style="color:#4a5568;font-size:11px;margin-bottom:4px">Цемент (тн)</div>';
-      html += '<input id="bal-cement" type="number" placeholder="0" value="'+(inertBalance.Цемент||"")+'" oninput="inertBalance['Цемент']=this.value" style="margin-bottom:10px"/>';
+      html += '<input id="bal-cement" type="number" placeholder="0" value="'+(inertBalance.Цемент||"")+'" "  style="margin-bottom:10px"/>';
       html += '<div style="color:#4a5568;font-size:11px;margin-bottom:4px">Щебень (м³)</div>';
-      html += '<input id="bal-gravel" type="number" placeholder="0" value="'+(inertBalance.Щебень||"")+'" oninput="inertBalance['Щебень']=this.value" style="margin-bottom:10px"/>';
+      html += '<input id="bal-gravel" type="number" placeholder="0" value="'+(inertBalance.Щебень||"")+'" "  style="margin-bottom:10px"/>';
       html += '<div style="color:#4a5568;font-size:11px;margin-bottom:4px">Песок (м³)</div>';
-      html += '<input id="bal-sand" type="number" placeholder="0" value="'+(inertBalance.Песок||"")+'" oninput="inertBalance['Песок']=this.value" style="margin-bottom:12px"/>';
+      html += '<input id="bal-sand" type="number" placeholder="0" value="'+(inertBalance.Песок||"")+'" "  style="margin-bottom:12px"/>';
       html += '<button onclick="saveInertBalance()" style="width:100%;background:#d97706;color:#fff;border:none;border-radius:8px;padding:10px;font-size:14px;font-weight:700;cursor:pointer">💾 Сохранить остаток</button>';
       html += '</div>';
 
@@ -1454,6 +1454,13 @@ function buildCastLines(){
   });
   return h;
 }
+function cancelInertForm(){
+  showInertForm=false;
+  inertFormStep=0;
+  inertFormData={material:"Цемент",type:"debt",date:today(),qty:"",price:"",note:""};
+  renderStock();
+}
+
 async function saveInertBalance(){
   const cement = parseFloat(document.getElementById('bal-cement')?.value)||0;
   const gravel = parseFloat(document.getElementById('bal-gravel')?.value)||0;
