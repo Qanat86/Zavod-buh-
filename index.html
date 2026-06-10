@@ -918,13 +918,13 @@ function renderStock(){
           html += '<div></div></div>';
           castFormData.lines.forEach((l,i)=>{
             const filled = l.name&&l.qty&&parseFloat(l.qty)>0;
-            html += '<div style="display:grid;grid-template-columns:1fr 80px 28px;gap:4px;margin-bottom:5px;background:'+(filled?"#0a1f12":"#0f1117")+';border:1px solid '+(filled?"#166534":"#1e2433")+';border-radius:8px;padding:5px 6px;align-items:center">';
-            html += '<input type="text" placeholder="Наименование '+(i+1)+'" value="'+(l.name||'')+'" oninput="castFormData.lines['+i+'].name=this.value" style="background:transparent;border:none;padding:5px 8px;font-size:12px;color:#e8eaf0;outline:none;width:100%"/>';
-            html += '<input type="number" placeholder="0" value="'+(l.qty||'')+'" oninput="castFormData.lines['+i+'].qty=this.value" style="background:transparent;border:none;padding:5px 4px;font-size:12px;text-align:center;color:#e8eaf0;outline:none;width:100%"/>';
+            html += '<div style="display:grid;grid-template-columns:1fr 80px 28px;gap:4px;margin-bottom:5px;background:'+(filled?'#0a1f12':'#0f1117')+';border:1px solid '+(filled?'#166534':'#1e2433')+';border-radius:8px;padding:5px 6px;align-items:center">';
+            html += '<input id="cast-name-'+i+'" type="text" placeholder="Наименование '+(i+1)+'" value="'+(l.name||'')+'" style="background:transparent;border:none;padding:5px 8px;font-size:12px;color:#e8eaf0;outline:none;width:100%;font-family:Nunito,sans-serif"/>';
+            html += '<input id="cast-qty-'+i+'" type="number" placeholder="0" value="'+(l.qty||'')+'" style="background:transparent;border:none;padding:5px 4px;font-size:12px;text-align:center;color:#e8eaf0;outline:none;width:100%;font-family:Nunito,sans-serif"/>';
             html += '<button onclick="castRemoveLine('+i+')" style="background:none;border:none;color:#4a5568;cursor:pointer;font-size:15px;padding:0;text-align:center">✕</button>';
             html += '</div>';
           });
-          if(castFormData.lines.length<100){
+if(castFormData.lines.length<100){
             html += '<button onclick="castAddLine()" style="width:100%;margin-top:4px;padding:10px;background:#1e2433;border:1px dashed #2a2f3e;border-radius:8px;color:#8892a0;font-size:13px;font-weight:700;cursor:pointer">+ Добавить позицию</button>';
           }
           if(cTotalQty>0){
@@ -1037,13 +1037,13 @@ function renderStock(){
           html += '<div></div></div>';
           defectFormData.lines.forEach((l,i)=>{
             const filled = l.name&&l.qty&&parseFloat(l.qty)>0;
-            html += '<div style="display:grid;grid-template-columns:1fr 80px 28px;gap:4px;margin-bottom:5px;background:'+(filled?"#1f0a0a":"#0f1117")+';border:1px solid '+(filled?"#7f1d1d":"#1e2433")+';border-radius:8px;padding:5px 6px;align-items:center">';
-            html += '<input type="text" placeholder="Наименование '+(i+1)+'" value="'+(l.name||'')+'" oninput="defectFormData.lines['+i+'].name=this.value" style="background:transparent;border:none;padding:5px 8px;font-size:12px;color:#e8eaf0;outline:none;width:100%"/>';
-            html += '<input type="number" placeholder="0" value="'+(l.qty||'')+'" oninput="defectFormData.lines['+i+'].qty=this.value" style="background:transparent;border:none;padding:5px 4px;font-size:12px;text-align:center;color:#e8eaf0;outline:none;width:100%"/>';
+            html += '<div style="display:grid;grid-template-columns:1fr 80px 28px;gap:4px;margin-bottom:5px;background:'+(filled?'#1f0a0a':'#0f1117')+';border:1px solid '+(filled?'#7f1d1d':'#1e2433')+';border-radius:8px;padding:5px 6px;align-items:center">';
+            html += '<input id="def-name-'+i+'" type="text" placeholder="Наименование '+(i+1)+'" value="'+(l.name||'')+'" style="background:transparent;border:none;padding:5px 8px;font-size:12px;color:#e8eaf0;outline:none;width:100%;font-family:Nunito,sans-serif"/>';
+            html += '<input id="def-qty-'+i+'" type="number" placeholder="0" value="'+(l.qty||'')+'" style="background:transparent;border:none;padding:5px 4px;font-size:12px;text-align:center;color:#e8eaf0;outline:none;width:100%;font-family:Nunito,sans-serif"/>';
             html += '<button onclick="defectRemoveLine('+i+')" style="background:none;border:none;color:#4a5568;cursor:pointer;font-size:15px;padding:0;text-align:center">✕</button>';
             html += '</div>';
           });
-          if(defectFormData.lines.length<100){
+if(defectFormData.lines.length<100){
             html += '<button onclick="defectAddLine()" style="width:100%;margin-top:4px;padding:10px;background:#1e2433;border:1px dashed #2a2f3e;border-radius:8px;color:#8892a0;font-size:13px;font-weight:700;cursor:pointer">+ Добавить позицию</button>';
           }
           if(dTotalQty>0){
@@ -1199,8 +1199,8 @@ function renderStock(){
 async function saveDefect(){
   if(!defectFormData.category){alert("Выберите категорию");return;}
   defectFormData.lines.forEach(function(l, idx){
-    const nameEl = document.querySelector('input[oninput="defectFormData.lines['+idx+'].name=this.value"]');
-    const qtyEl = document.querySelector('input[oninput="defectFormData.lines['+idx+'].qty=this.value"]');
+    const nameEl = document.getElementById('def-name-'+idx);
+    const qtyEl = document.getElementById('def-qty-'+idx);
     if(nameEl) l.name = nameEl.value;
     if(qtyEl) l.qty = qtyEl.value;
   });
@@ -1227,8 +1227,8 @@ function castAddLine(){
   if(castFormData.lines.length>=100) return;
   // Save current DOM values before re-render
   castFormData.lines.forEach(function(l, i){
-    const nameEl = document.querySelector('input[oninput="castFormData.lines['+i+'].name=this.value"]');
-    const qtyEl = document.querySelector('input[oninput="castFormData.lines['+i+'].qty=this.value"]');
+    const nameEl = document.getElementById('cast-name-'+i);
+    const qtyEl = document.getElementById('cast-qty-'+i);
     if(nameEl) l.name = nameEl.value;
     if(qtyEl) l.qty = qtyEl.value;
   });
@@ -1237,8 +1237,8 @@ function castAddLine(){
 }
 function castRemoveLine(i){
   castFormData.lines.forEach(function(l, idx){
-    const nameEl = document.querySelector('input[oninput="castFormData.lines['+idx+'].name=this.value"]');
-    const qtyEl = document.querySelector('input[oninput="castFormData.lines['+idx+'].qty=this.value"]');
+    const nameEl = document.getElementById('cast-name-'+idx);
+    const qtyEl = document.getElementById('cast-qty-'+idx);
     if(nameEl) l.name = nameEl.value;
     if(qtyEl) l.qty = qtyEl.value;
   });
@@ -1249,8 +1249,8 @@ function castRemoveLine(i){
 function defectAddLine(){
   if(defectFormData.lines.length>=100)return;
   defectFormData.lines.forEach(function(l, i){
-    const nameEl = document.querySelector('input[oninput="defectFormData.lines['+i+'].name=this.value"]');
-    const qtyEl = document.querySelector('input[oninput="defectFormData.lines['+i+'].qty=this.value"]');
+    const nameEl = document.getElementById('def-name-'+i);
+    const qtyEl = document.getElementById('def-qty-'+i);
     if(nameEl) l.name = nameEl.value;
     if(qtyEl) l.qty = qtyEl.value;
   });
@@ -1259,8 +1259,8 @@ function defectAddLine(){
 }
 function defectRemoveLine(i){
   defectFormData.lines.forEach(function(l, idx){
-    const nameEl = document.querySelector('input[oninput="defectFormData.lines['+idx+'].name=this.value"]');
-    const qtyEl = document.querySelector('input[oninput="defectFormData.lines['+idx+'].qty=this.value"]');
+    const nameEl = document.getElementById('def-name-'+idx);
+    const qtyEl = document.getElementById('def-qty-'+idx);
     if(nameEl) l.name = nameEl.value;
     if(qtyEl) l.qty = qtyEl.value;
   });
