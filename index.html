@@ -1129,7 +1129,10 @@ if(defectFormData.lines.length<100){
         html += '</select><div class="flex" style="margin-bottom:8px;flex-wrap:wrap">';
         Object.entries(typeLabels).forEach(([v,l])=>{ html += '<button class="btn btn-sm '+(stockFormData.type===v?'':'btn-dark')+'" onclick="stockFormData.type=\''+v+'\';renderStock()">'+l+'</button>'; });
         html += '</div><div class="grid2" style="margin-bottom:8px">';
-        html += '<input type="number" placeholder="Количество" value="'+(stockFormData.qty||'')+'" oninput="stockFormData.qty=this.value"/>';
+        const _isMat = ["Песок","Щебень","Цемент"].includes(stockFormData.item);
+        const _isCem = stockFormData.item==="Цемент";
+        const _unit = _isCem?"тн":_isMat?"м³":"шт";
+        html += '<input type="number" placeholder="Количество ('+_unit+')" value="'+(stockFormData.qty||'')+'" oninput="stockFormData.qty=this.value"/>';
         html += '<input type="date" value="'+stockFormData.date+'" onchange="stockFormData.date=this.value"/></div>';
         html += '<input type="text" placeholder="Примечание" value="'+(stockFormData.note||'')+'" oninput="stockFormData.note=this.value" style="margin-bottom:8px"/>';
         html += '<div class="flex"><button class="btn btn-green" onclick="saveStock()">Сохранить</button><button class="btn btn-dark" onclick="showStockForm=false;renderStock()">Отмена</button></div></div>';
@@ -1504,14 +1507,16 @@ function renderStockTable(title, bal, showHistory){
 
     html+='<div style="background:#161b27;border:1px solid #2563eb;border-radius:12px;overflow:hidden;margin-bottom:14px">';
     // Header
+    const _isMat2 = ["Песок","Щебень","Цемент"].includes(item);
+    const _unit2 = item==="Цемент" ? "тн" : _isMat2 ? "м³" : "шт";
+    const _prodLabel2 = _isMat2 ? "Получено" : "Изготовлено";
     html+='<div style="background:#1e3a5f;padding:12px 14px;display:flex;justify-content:space-between;align-items:center">';
     html+='<span style="font-weight:800;font-size:16px;color:#e8eaf0">'+item+'</span>';
-    html+='<span style="font-family:Courier New,monospace;font-weight:800;font-size:18px;color:#60a5fa">'+(b.balance||0)+' шт</span>';
+    html+='<span style="font-family:Courier New,monospace;font-weight:800;font-size:18px;color:#60a5fa">'+(b.balance||0)+' '+_unit2+'</span>';
     html+='</div>';
-    // Stats
     html+='<div style="display:grid;grid-template-columns:1fr 1fr;border-bottom:1px solid #2a2f3e">';
-    html+='<div style="padding:10px 14px;border-right:1px solid #2a2f3e"><div style="color:#4a5568;font-size:11px;margin-bottom:2px">Изготовлено</div><div style="color:#22c55e;font-weight:700;font-size:16px;font-family:Courier New,monospace">'+(b.produced||0)+'</div></div>';
-    html+='<div style="padding:10px 14px"><div style="color:#4a5568;font-size:11px;margin-bottom:2px">Отгружено</div><div style="color:#f87171;font-weight:700;font-size:16px;font-family:Courier New,monospace">'+(b.shipped||0)+'</div></div>';
+    html+='<div style="padding:10px 14px;border-right:1px solid #2a2f3e"><div style="color:#4a5568;font-size:11px;margin-bottom:2px">'+_prodLabel2+'</div><div style="color:#22c55e;font-weight:700;font-size:16px;font-family:Courier New,monospace">'+(b.produced||0)+' '+_unit2+'</div></div>';
+    html+='<div style="padding:10px 14px"><div style="color:#4a5568;font-size:11px;margin-bottom:2px">Отгружено</div><div style="color:#f87171;font-weight:700;font-size:16px;font-family:Courier New,monospace">'+(b.shipped||0)+' '+_unit2+'</div></div>';
     html+='</div>';
 
     if(posEntries.length>0){
@@ -1534,14 +1539,18 @@ function renderStockTable(title, bal, showHistory){
   let html='<div style="background:#1e2433;border-radius:10px;padding:8px 14px;margin-bottom:10px;font-size:12px;color:#60a5fa">💡 Нажмите на изделие — увидите позиции</div>';
   STOCK_ITEMS.forEach(function(item){
     const b=bal[item]||{produced:0,shipped:0,balance:0};
+    const isMaterial = ["Песок","Щебень","Цемент"].includes(item);
+    const isCement = item==="Цемент";
+    const unit = isCement ? "тн" : isMaterial ? "м³" : "шт";
+    const producedLabel = isMaterial ? "Получено" : "Изгот";
     html+='<button onclick="selectedStockItem=\''+item+'\';renderStock()" style="width:100%;background:#161b27;border:1px solid #2a2f3e;border-radius:12px;padding:12px 14px;margin-bottom:8px;cursor:pointer;text-align:left;-webkit-tap-highlight-color:rgba(96,165,250,0.15);display:block">';
     html+='<div style="display:flex;justify-content:space-between;align-items:center">';
     html+='<span style="color:#60a5fa;font-weight:700;font-size:14px;font-family:Nunito,sans-serif">'+item+'</span>';
-    html+='<span style="font-family:Courier New,monospace;font-weight:800;font-size:15px;color:'+(b.balance<0?'#f87171':'#60a5fa')+'">'+( b.balance||0)+' шт</span>';
+    html+='<span style="font-family:Courier New,monospace;font-weight:800;font-size:15px;color:'+(b.balance<0?'#f87171':'#60a5fa')+'">'+( b.balance||0)+' '+unit+'</span>';
     html+='</div>';
     html+='<div style="display:flex;gap:16px;margin-top:5px">';
-    html+='<span style="color:#22c55e;font-size:12px">↑ Изгот: '+(b.produced||0)+'</span>';
-    html+='<span style="color:#f87171;font-size:12px">↓ Отгр: '+(b.shipped||0)+'</span>';
+    html+='<span style="color:#22c55e;font-size:12px">↑ '+producedLabel+': '+(b.produced||0)+' '+unit+'</span>';
+    html+='<span style="color:#f87171;font-size:12px">↓ Отгр: '+(b.shipped||0)+' '+unit+'</span>';
     html+='</div>';
     html+='</button>';
   });
