@@ -167,7 +167,7 @@ const esc = s => String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replac
 let currentUser = null;
 let currentPage = "dashboard";
 let unsubs = [];
-let data = {orders:[], transactions:[], stock:[], debts:[], warehouses:[], castings:[], defects:[], nextOrderNum:1};
+let data = {orders:[], transactions:[], stock:[], debts:[], warehouses:[], castings:[], defects:[], inerts:[], inertBalances:{}, nextOrderNum:1};
 
 // ============ AUTH ============
 function doLogin() {
@@ -253,6 +253,13 @@ function startListeners() {
     data.defects = snap.docs.map(d => ({id:d.id,...d.data()}));
     if (currentPage === "stock") renderStock();
   }));
+  unsubs.push(db.collection("inerts").onSnapshot(snap => {
+    data.inerts = snap.docs.map(d => ({id:d.id,...d.data()}));
+    if (currentPage === "stock") renderStock();
+  }));
+  db.collection("meta").doc("inertBalances").get().then(snap => {
+    if(snap.exists) { data.inertBalances = snap.data(); if(currentPage==="stock") renderStock(); }
+  });
 }
 
 function showPage(pg) {
@@ -786,9 +793,48 @@ async function saveTx(){
   const tx={...txFormData,amount:parseFloat(txFormData.amount)};
   delete tx.id;
   try{
-    if(editTxId)await db.collection("transactions").doc(editTxId).set(tx);
+    if(editTxId) await db.collection("transactions").doc(editTxId).set(tx);
     else await db.collection("transactions").add(tx);
-    showTxForm=false;editTxId=null;
+
+    // AUTO: Расходы на Цемент/Щебень/Песок
+    const inertMats = ["Цемент","Щебень","Песок"];
+    if(tx.type==="expense" && inertMats.includes(tx.category)){
+      const paidAmt = parseFloat(tx.amount)||0;
+
+      // 1. Добавить в текущий склад как "получено" — сумма в ₸ (без м³/тн)
+      await db.collection("stock").add({
+        item: tx.category,
+        type: "received",
+        qty: paidAmt, // сумма в ₸
+        date: tx.date,
+        note: "Оплата "+fmt(paidAmt)+" ₸",
+        isAmount: true, // флаг: это сумма, не количество
+        createdAt: Date.now()
+      });
+
+      // 2. Найти самый старый открытый долг и уменьшить/закрыть
+      // Данные в коллекции inerts НЕ трогаем — только debts
+      const openDebts = (data.debts||[])
+        .filter(function(d){
+          return d.type==="payable" && d.status==="open" &&
+            (d.counterparty===tx.category || (d.note&&d.note.startsWith(tx.category)));
+        })
+        .sort(function(a,b){ return a.date.localeCompare(b.date); });
+
+      if(openDebts.length>0){
+        const debt = openDebts[0];
+        if(paidAmt >= debt.amount){
+          // Полная оплата → закрыть долг (inerts история не меняется)
+          await db.collection("debts").doc(debt.id).update({status:"closed"});
+        } else {
+          // Частичная → уменьшить сумму (inerts история не меняется)
+          const newAmt = Math.round((debt.amount - paidAmt)*100)/100;
+          await db.collection("debts").doc(debt.id).update({amount: newAmt});
+        }
+      }
+    }
+
+    showTxForm=false; editTxId=null;
   }catch(e){alert("Ошибка: "+e.message);}
 }
 async function delTx(id){if(!confirm("Удалить?"))return;await db.collection("transactions").doc(id).delete();}
@@ -806,6 +852,11 @@ let showCastForm=false;
 let castFormStep=0; // 0=date, 1=category, 2=lines
 let castFormData={date:today(),category:"",lines:[{name:"",qty:""}]};
 let editCastingGroup=null; // {date, category, records:[]}
+let showInertForm=false;
+let inertSubTab="history"; // "history" | "balance"
+let inertBalance={Цемент:"",Щебень:"",Песок:""}; // manual balance inputs
+let inertFormStep=0; // 0=material, 1=type(debt/receipt), 2=details
+let inertFormData={material:"Цемент",type:"debt",date:today(),qty:"",price:"",note:""};
 let showDefectForm=false;
 let defectFormStep=0;
 let defectFormData={date:today(),category:"",lines:[{name:"",qty:""}]};
@@ -820,9 +871,13 @@ function renderStock(){
     // Compute main stock balance
     const mainBal={};
     STOCK_ITEMS.forEach(i=>mainBal[i]={produced:0,shipped:0,balance:0});
+    const INERT_ITEMS = ["Цемент","Щебень","Песок"];
     (data.stock||[]).forEach(m=>{
-      if(!mainBal[m.item]) mainBal[m.item]={produced:0,shipped:0,balance:0};
-      if(m.type==="produced"){mainBal[m.item].produced+=m.qty;mainBal[m.item].balance+=m.qty;}
+      if(!mainBal[m.item]) mainBal[m.item]={produced:0,shipped:0,balance:0,amountPaid:0};
+      if(m.isAmount){
+        // Amount-based entry (₸) for inert materials
+        mainBal[m.item].amountPaid = (mainBal[m.item].amountPaid||0) + m.qty;
+      } else if(m.type==="produced"){mainBal[m.item].produced+=m.qty;mainBal[m.item].balance+=m.qty;}
       else if(m.type==="shipped"){mainBal[m.item].shipped+=m.qty;mainBal[m.item].balance-=m.qty;}
       else if(m.type==="received") mainBal[m.item].balance+=m.qty;
       else if(m.type==="used") mainBal[m.item].balance-=m.qty;
@@ -864,6 +919,7 @@ function renderStock(){
     if(isAdmin) tabsHtml += '<button class="btn btn-sm" onclick="showWarehouseForm=!showWarehouseForm;renderStock()" style="background:#1e2433;border:1px dashed #2a2f3e">+ Новый склад</button>';
     tabsHtml += '<button class="btn btn-sm" onclick="activeWarehouseId=\'castings\';selectedStockItem=null;renderStock()" style="background:'+(activeWarehouseId==="castings"?"#7c3aed":"#1e2433")+'">🏭 Залитые</button>';
     tabsHtml += '<button class="btn btn-sm" onclick="activeWarehouseId=\'defects\';selectedStockItem=null;renderStock()" style="background:'+(activeWarehouseId==="defects"?"#dc2626":"#1e2433")+'">❌ Браки</button>';
+    tabsHtml += '<button class="btn btn-sm" onclick="activeWarehouseId=\'inert\';selectedStockItem=null;renderStock()" style="background:'+(activeWarehouseId==="inert"?"#d97706":"#1e2433")+'">🪨 Инертные</button>';
     tabsHtml += '</div>';
 
     let html = '';
@@ -1093,7 +1149,151 @@ if(defectFormData.lines.length<100){
       return;
     }
 
-    // ---- HEADER for main/combined/archive views ----
+    // ---- INERT MATERIALS VIEW ----
+  if(activeWarehouseId==="inert"){
+    html += '<div class="flex" style="justify-content:space-between;align-items:center;margin-bottom:12px">';
+    html += '<div style="font-weight:700;font-size:15px;color:#f59e0b">🪨 Инертные материалы</div>';
+    if(isAdmin) html += '<button class="btn" style="background:#d97706" onclick="showInertForm=!showInertForm;renderStock()">+ Добавить</button>';
+    html += '</div>';
+    html += tabsHtml;
+
+    // Form
+    if(showInertForm && isAdmin){
+      html += '<div class="card" style="margin-bottom:12px;border-color:#d97706">';
+      html += '<div style="font-weight:700;font-size:14px;color:#f59e0b;margin-bottom:12px">📝 Новая запись</div>';
+
+      // STEP 0 — MATERIAL
+      const i0done = inertFormData.material.length>0;
+      html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">';
+      html += '<div style="width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:#fff;flex-shrink:0;background:'+(inertFormStep===0?"#d97706":i0done?"#166534":"#1e2433")+'">'+(i0done&&inertFormStep!==0?"✓":"1")+'</div>';
+      html += '<span style="font-weight:700;font-size:13px;color:'+(inertFormStep===0?"#e8eaf0":i0done?"#22c55e":"#4a5568")+'">Материал</span></div>';
+      if(inertFormStep===0){
+        html += '<div style="padding-left:32px;margin-bottom:10px;display:flex;flex-wrap:wrap;gap:8px">';
+        ["Цемент","Щебень","Песок"].forEach(function(mat){
+          html += '<button onclick="inertFormData.material=\''+mat+'\';inertFormStep=2;renderStock()" style="background:'+(inertFormData.material===mat?"#d97706":"#1e2433")+';color:'+(inertFormData.material===mat?"#fff":"#8892a0")+';border:1px solid '+(inertFormData.material===mat?"#f59e0b":"#2a2f3e")+';border-radius:8px;padding:10px 18px;font-size:14px;font-weight:700;cursor:pointer">'+mat+'</button>';
+        });
+        html += '</div>';
+      }
+      if(i0done && inertFormStep>0){
+        html += '<div style="padding-left:32px;color:#22c55e;font-size:12px;margin-bottom:8px">✓ '+inertFormData.material+'</div>';
+      }
+
+      // STEP 1 — always Долг, auto-advance
+      if(inertFormStep===1){ inertFormData.type="debt"; inertFormStep=2; }
+
+      // STEP 2 — DETAILS
+      if(inertFormStep>=2){
+        const unitLabel = inertFormData.material==="Цемент"?"тн":"м³";
+        html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">';
+        html += '<div style="width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:#fff;flex-shrink:0;background:#d97706">3</div>';
+        html += '<span style="font-weight:700;font-size:13px;color:#e8eaf0">Детали</span></div>';
+        html += '<div style="padding-left:32px">';
+        html += '<div style="color:#4a5568;font-size:11px;margin-bottom:4px">Дата</div>';
+        html += '<input type="date" value="'+inertFormData.date+'" onchange="inertFormData.date=this.value" style="margin-bottom:10px"/>';
+        html += '<div style="color:#4a5568;font-size:11px;margin-bottom:4px">Количество ('+unitLabel+')</div>';
+        html += '<input type="number" id="inert-qty" placeholder="0" value="'+(inertFormData.qty||'')+'" oninput="inertFormData.qty=this.value" style="margin-bottom:10px"/>';
+        html += '<div style="color:#4a5568;font-size:11px;margin-bottom:4px">Цена за единицу (₸)</div>';
+        html += '<input type="number" id="inert-price" placeholder="0" value="'+(inertFormData.price||'')+'" oninput="inertFormData.price=this.value" style="margin-bottom:10px"/>';
+        if(inertFormData.qty && inertFormData.price){
+          const total = (parseFloat(inertFormData.qty)||0)*(parseFloat(inertFormData.price)||0);
+          html += '<div style="background:#0f1117;border:1px solid #2a2f3e;border-radius:8px;padding:10px 14px;margin-bottom:10px;display:flex;justify-content:space-between">';
+          html += '<span style="color:#8892a0;font-size:13px">Итого:</span>';
+          html += '<span style="font-family:Courier New,monospace;font-weight:800;font-size:16px;color:#f59e0b">'+new Intl.NumberFormat("ru-KZ").format(total)+' ₸</span></div>';
+        }
+        html += '<div style="color:#4a5568;font-size:11px;margin-bottom:4px">Контрагент / Примечание</div>';
+        html += '<input type="text" id="inert-note" placeholder="Поставщик или примечание" value="'+(inertFormData.note||'')+'" oninput="inertFormData.note=this.value" style="margin-bottom:12px"/>';
+        html += '<div class="flex"><button class="btn" style="background:#d97706;flex:1;font-size:14px" onclick="saveInert()">💾 Сохранить</button>';
+        html += '<button class="btn btn-dark" onclick="showInertForm=false;inertFormStep=0;inertFormData={material:\'Цемент\',type:\'debt\',date:today(),qty:\'\',price:\'\',note:\'\'};renderStock()">Отмена</button></div>';
+        html += '</div>';
+      }
+      html += '</div>';
+    }
+
+    // Compute summary
+    const inertSummary={Цемент:{qty:0,amount:0},Щебень:{qty:0,amount:0},Песок:{qty:0,amount:0}};
+    (data.inerts||[]).forEach(function(r){
+      if(inertSummary[r.material]!==undefined){
+        inertSummary[r.material].qty += parseFloat(r.qty)||0;
+        inertSummary[r.material].amount += (parseFloat(r.qty)||0)*(parseFloat(r.price)||0);
+      }
+    });
+    const inertUnits={Цемент:"тн",Щебень:"м³",Песок:"м³"};
+
+    // Sub-tabs
+    html += '<div style="display:flex;gap:8px;margin-bottom:14px">';
+    html += '<button onclick="inertSubTab=\'history\';renderStock()" style="background:'+(inertSubTab==="history"?"#d97706":"#1e2433")+';color:#fff;border:none;border-radius:8px;padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer">📋 История</button>';
+    html += '<button onclick="inertSubTab=\'balance\';renderStock()" style="background:'+(inertSubTab==="balance"?"#d97706":"#1e2433")+';color:#fff;border:none;border-radius:8px;padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer">📊 Остаток</button>';
+    html += '</div>';
+
+    if(inertSubTab==="balance"){
+      // Manual balance entry card
+      html += '<div class="card" style="border-color:#d97706;margin-bottom:14px">';
+      html += '<div style="font-weight:700;font-size:14px;color:#f59e0b;margin-bottom:12px">📊 Остаток (вводится вручную)</div>';
+      html += '<div style="color:#4a5568;font-size:11px;margin-bottom:4px">Цемент (тн)</div>';
+      html += '<input id="bal-cement" type="number" placeholder="0" value="'+(inertBalance.Цемент||"")+'" oninput="inertBalance['Цемент']=this.value" style="margin-bottom:10px"/>';
+      html += '<div style="color:#4a5568;font-size:11px;margin-bottom:4px">Щебень (м³)</div>';
+      html += '<input id="bal-gravel" type="number" placeholder="0" value="'+(inertBalance.Щебень||"")+'" oninput="inertBalance['Щебень']=this.value" style="margin-bottom:10px"/>';
+      html += '<div style="color:#4a5568;font-size:11px;margin-bottom:4px">Песок (м³)</div>';
+      html += '<input id="bal-sand" type="number" placeholder="0" value="'+(inertBalance.Песок||"")+'" oninput="inertBalance['Песок']=this.value" style="margin-bottom:12px"/>';
+      html += '<button onclick="saveInertBalance()" style="width:100%;background:#d97706;color:#fff;border:none;border-radius:8px;padding:10px;font-size:14px;font-weight:700;cursor:pointer">💾 Сохранить остаток</button>';
+      html += '</div>';
+
+      // Show current balance from Firebase
+      html += '<div class="card" style="padding:0;overflow:hidden;border-color:#d97706">';
+      html += '<div style="padding:10px 14px;border-bottom:1px solid #2a2f3e;font-weight:700;font-size:13px;color:#f59e0b">Сохранённый остаток</div>';
+      ["Цемент","Щебень","Песок"].forEach(function(mat){
+        const saved = (data.inertBalances||{})[mat]||0;
+        const unit = inertUnits[mat];
+        html += '<div style="padding:10px 14px;border-bottom:1px solid #1a1f2e;display:flex;justify-content:space-between;align-items:center">';
+        html += '<span style="color:#c4cad8;font-weight:600">'+mat+'</span>';
+        html += '<span style="font-family:Courier New,monospace;font-weight:800;font-size:16px;color:#f59e0b">'+saved+' '+unit+'</span>';
+        html += '</div>';
+      });
+      html += '</div>';
+    } else {
+      // History tab - show summary + records
+      html += '<div class="card" style="padding:0;overflow:hidden;margin-bottom:14px;border-color:#d97706">';
+      html += '<div style="padding:10px 14px;border-bottom:1px solid #2a2f3e;font-weight:700;font-size:13px;color:#f59e0b">Итого получено</div>';
+      ["Цемент","Щебень","Песок"].forEach(function(mat){
+        const s=inertSummary[mat];
+        html += '<div style="padding:10px 14px;border-bottom:1px solid #1a1f2e">';
+        html += '<div style="display:flex;justify-content:space-between;align-items:center">';
+        html += '<span style="color:#c4cad8;font-weight:600">'+mat+'</span>';
+        html += '<span style="font-family:Courier New,monospace;font-weight:700;color:#f59e0b">'+s.qty+' '+inertUnits[mat]+'</span>';
+        html += '</div>';
+        html += '<div style="color:#8892a0;font-size:11px;margin-top:2px">Сумма долга: '+fmt(s.amount)+' ₸</div>';
+        html += '</div>';
+      });
+      html += '</div>';
+
+      html += '<div class="label">История записей</div>';
+    const sortedInerts = [...(data.inerts||[])].sort(function(a,b){return (b.createdAt||0)-(a.createdAt||0);});
+    if(!sortedInerts.length){
+      html += '<div class="empty">Записей нет</div>';
+    } else {
+      sortedInerts.forEach(function(r){
+        const total = (parseFloat(r.qty)||0)*(parseFloat(r.price)||0);
+        const unit = r.material==="Цемент"?"тн":"м³";
+        html += '<div class="card" style="margin-bottom:8px;border-left:3px solid '+(r.type==="debt"?"#dc2626":"#22c55e")+'">';
+        html += '<div style="display:flex;justify-content:space-between;align-items:flex-start">';
+        html += '<div><span style="font-weight:700;font-size:13px">'+r.material+'</span>';
+        html += '<span class="badge" style="margin-left:8px;background:'+(r.type==="debt"?"#3b0f0f":"#0d2018")+';color:'+(r.type==="debt"?"#f87171":"#22c55e")+'">'+(r.type==="debt"?"Долг":"Оплачено")+'</span></div>';
+        html += '<span style="font-family:Courier New,monospace;font-weight:700;color:#f59e0b">'+r.qty+' '+unit+'</span>';
+        html += '</div>';
+        html += '<div style="color:#8892a0;font-size:11px;margin-top:4px">'+fmtDate(r.date)+' · Цена: '+fmt(r.price)+' ₸/'+unit+' · Итого: '+fmt(total)+' ₸'+(r.note?' · '+r.note:'')+'</div>';
+        if(isAdmin) html += '<button onclick="deleteInert(\''+r.id+'\')" style="background:none;border:none;color:#f87171;cursor:pointer;font-size:12px;margin-top:4px">🗑 Удалить</button>';
+        html += '</div>';
+      });
+    }
+
+    } // end history tab
+
+    html += '<div style="position:sticky;bottom:0;padding:10px 0 4px;background:linear-gradient(to top,#0f1117 80%,transparent);margin-top:8px"><button onclick="printInerts()" style="width:100%;padding:14px;font-size:15px;font-weight:700;background:#d97706;color:#fff;border:none;border-radius:12px;cursor:pointer">🖨 Сохранить / Распечатать PDF</button></div>';
+    document.getElementById("page-stock").innerHTML=html;
+    return;
+  }
+
+  // ---- HEADER for main/combined/archive views ----
     html += '<div class="flex" style="justify-content:space-between;margin-bottom:12px">';
     html += '<div class="section-title" style="margin-bottom:0">Склад</div>';
     if(isAdmin) html += '<button class="btn" onclick="showStockForm=!showStockForm;renderStock()">+ Движение</button>';
@@ -1253,6 +1453,102 @@ function buildCastLines(){
   });
   return h;
 }
+async function saveInertBalance(){
+  const cement = parseFloat(document.getElementById('bal-cement')?.value||0)||0;
+  const gravel = parseFloat(document.getElementById('bal-gravel')?.value||0)||0;
+  const sand = parseFloat(document.getElementById('bal-sand')?.value||0)||0;
+  try{
+    await db.collection("meta").doc("inertBalances").set({
+      Цемент: cement,
+      Щебень: gravel,
+      Песок: sand,
+      updatedAt: Date.now()
+    });
+    inertBalance = {Цемент: String(cement), Щебень: String(gravel), Песок: String(sand)};
+    alert("✅ Остаток сохранён");
+  }catch(e){ alert("Ошибка: "+e.message); }
+}
+
+async function saveInert(){
+  const qty = parseFloat(document.getElementById('inert-qty')?.value||inertFormData.qty)||0;
+  const price = parseFloat(document.getElementById('inert-price')?.value||inertFormData.price)||0;
+  const note = document.getElementById('inert-note')?.value||inertFormData.note||"";
+  if(!qty) return alert("Введите количество");
+  if(!price) return alert("Введите цену");
+  const total = qty*price;
+  try{
+    // Save to inerts collection
+    const savedMaterial = inertFormData.material;
+    const savedType = inertFormData.type;
+    const savedDate = inertFormData.date;
+    await db.collection("inerts").add({
+      material: savedMaterial,
+      type: savedType,
+      date: savedDate,
+      qty: qty,
+      price: price,
+      total: total,
+      note: note,
+      createdAt: Date.now(),
+      createdBy: currentUser.name
+    });
+
+    // Долг → в склад инертных (уже сохранено выше) + в кредиторскую задолженность
+    const unit2 = savedMaterial==="Цемент"?"тн":"м³";
+    await db.collection("debts").add({
+      type: "payable",
+      counterparty: note||savedMaterial,
+      amount: total,
+      date: savedDate,
+      dueDate: "",
+      status: "open",
+      note: savedMaterial+" "+qty+" "+unit2+" × "+fmt(price)+" ₸",
+      createdAt: Date.now()
+    });
+    // НЕ добавляем в текущий склад при долге
+
+    inertFormData={material:"Цемент",type:"debt",date:today(),qty:"",price:"",note:""};
+    inertFormStep=0;
+    showInertForm=false;
+  }catch(e){ alert("Ошибка: "+e.message); }
+}
+
+async function deleteInert(id){
+  if(!confirm("Удалить запись?")) return;
+  await db.collection("inerts").doc(id).delete();
+}
+
+function printInerts(){
+  const units={Цемент:"тн",Щебень:"м³",Песок:"м³"};
+  const summary={Цемент:{total:0,debtAmt:0},Щебень:{total:0,debtAmt:0},Песок:{total:0,debtAmt:0}};
+  let rows="";
+  [...(data.inerts||[])].sort((a,b)=>a.date.localeCompare(b.date)).forEach(function(r){
+    const total=(parseFloat(r.qty)||0)*(parseFloat(r.price)||0);
+    const unit=r.material==="Цемент"?"тн":"м³";
+    if(summary[r.material]){
+      summary[r.material].total+=parseFloat(r.qty)||0;
+      if(r.type==="debt") summary[r.material].debtAmt+=total;
+    }
+    rows+=`<tr><td>${fmtDate(r.date)}</td><td>${r.material}</td><td align="right">${r.qty} ${unit}</td><td align="right">${fmt(r.price)} ₸</td><td align="right" style="font-weight:bold">${fmt(total)} ₸</td><td style="color:${r.type==="debt"?"red":"green"}">${r.type==="debt"?"Долг":"Оплачено"}</td><td>${r.note||"—"}</td></tr>`;
+  });
+  const sumRows=["Цемент","Щебень","Песок"].map(mat=>`<tr><td><b>${mat}</b></td><td align="right">${summary[mat].total} ${units[mat]}</td><td align="right" style="color:red">${fmt(summary[mat].debtAmt)} ₸</td></tr>`).join("");
+  const html=`<html><head><title>Инертные материалы</title>
+  <style>body{font-family:Arial;padding:20px;font-size:13px}h1{font-size:18px}h2{font-size:14px;margin-top:16px;border-bottom:2px solid #d97706;padding-bottom:4px}
+  table{width:100%;border-collapse:collapse;margin-bottom:16px}th{background:#fff8e7;padding:7px 10px;text-align:left;border:1px solid #ddd}td{padding:6px 10px;border:1px solid #eee}
+  tr:nth-child(even){background:#fafafa}.footer{margin-top:20px;color:#aaa;font-size:11px;border-top:1px solid #eee;padding-top:8px}</style></head>
+  <body><h1>⚙ ЗАВОД БУХ — Инертные материалы</h1>
+  <p style="color:#888;font-size:12px">Дата: ${new Date().toLocaleDateString("ru-RU")}</p>
+  <h2>История</h2>
+  <table><thead><tr><th>Дата</th><th>Материал</th><th>Кол-во</th><th>Цена/ед</th><th>Итого</th><th>Тип</th><th>Примечание</th></tr></thead>
+  <tbody>${rows||'<tr><td colspan="7" style="text-align:center;color:#999">Нет данных</td></tr>'}</tbody></table>
+  <h2>Итого</h2>
+  <table><thead><tr><th>Материал</th><th>Количество</th><th>Долг (₸)</th></tr></thead>
+  <tbody>${sumRows}</tbody></table>
+  <div class="footer">Сформировано: ${new Date().toLocaleDateString("ru-RU")} ${new Date().toLocaleTimeString("ru-RU")}</div>
+  </body></html>`;
+  const w=window.open("","_blank");w.document.write(html);w.document.close();setTimeout(()=>w.print(),500);
+}
+
 function buildDefectLines(){
   let h = '';
   defectFormData.lines.forEach(function(l,i){
@@ -1539,18 +1835,27 @@ function renderStockTable(title, bal, showHistory){
   let html='<div style="background:#1e2433;border-radius:10px;padding:8px 14px;margin-bottom:10px;font-size:12px;color:#60a5fa">💡 Нажмите на изделие — увидите позиции</div>';
   STOCK_ITEMS.forEach(function(item){
     const b=bal[item]||{produced:0,shipped:0,balance:0};
-    const isMaterial = ["Песок","Щебень","Цемент"].includes(item);
-    const isCement = item==="Цемент";
-    const unit = isCement ? "тн" : isMaterial ? "м³" : "шт";
-    const producedLabel = isMaterial ? "Получено" : "Изгот";
+    const isInert = ["Песок","Щебень","Цемент"].includes(item);
+    const unit = isInert ? "" : "шт";
+    const producedLabel = isInert ? "Оплачено" : "Изгот";
     html+='<button onclick="selectedStockItem=\''+item+'\';renderStock()" style="width:100%;background:#161b27;border:1px solid #2a2f3e;border-radius:12px;padding:12px 14px;margin-bottom:8px;cursor:pointer;text-align:left;-webkit-tap-highlight-color:rgba(96,165,250,0.15);display:block">';
     html+='<div style="display:flex;justify-content:space-between;align-items:center">';
     html+='<span style="color:#60a5fa;font-weight:700;font-size:14px;font-family:Nunito,sans-serif">'+item+'</span>';
-    html+='<span style="font-family:Courier New,monospace;font-weight:800;font-size:15px;color:'+(b.balance<0?'#f87171':'#60a5fa')+'">'+( b.balance||0)+' '+unit+'</span>';
+    if(isInert){
+      const amtPaid = b.amountPaid||0;
+      html+='<span style="font-family:Courier New,monospace;font-weight:800;font-size:15px;color:#f59e0b">'+fmt(amtPaid)+' ₸</span>';
+    } else {
+      html+='<span style="font-family:Courier New,monospace;font-weight:800;font-size:15px;color:'+(b.balance<0?'#f87171':'#60a5fa')+'">'+(b.balance||0)+' шт</span>';
+    }
     html+='</div>';
     html+='<div style="display:flex;gap:16px;margin-top:5px">';
-    html+='<span style="color:#22c55e;font-size:12px">↑ '+producedLabel+': '+(b.produced||0)+' '+unit+'</span>';
-    html+='<span style="color:#f87171;font-size:12px">↓ Отгр: '+(b.shipped||0)+' '+unit+'</span>';
+    if(isInert){
+      html+='<span style="color:#22c55e;font-size:12px">↑ '+producedLabel+': '+fmt(b.amountPaid||0)+' ₸</span>';
+      html+='<span style="color:#f87171;font-size:12px">↓ Отгр: '+(b.shipped||0)+'</span>';
+    } else {
+      html+='<span style="color:#22c55e;font-size:12px">↑ Изгот: '+(b.produced||0)+' шт</span>';
+      html+='<span style="color:#f87171;font-size:12px">↓ Отгр: '+(b.shipped||0)+' шт</span>';
+    }
     html+='</div>';
     html+='</button>';
   });
