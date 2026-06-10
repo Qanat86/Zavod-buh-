@@ -1198,6 +1198,12 @@ function renderStock(){
 
 async function saveDefect(){
   if(!defectFormData.category){alert("Выберите категорию");return;}
+  defectFormData.lines.forEach(function(l, idx){
+    const nameEl = document.querySelector('input[oninput="defectFormData.lines['+idx+'].name=this.value"]');
+    const qtyEl = document.querySelector('input[oninput="defectFormData.lines['+idx+'].qty=this.value"]');
+    if(nameEl) l.name = nameEl.value;
+    if(qtyEl) l.qty = qtyEl.value;
+  });
   const validLines=defectFormData.lines.filter(l=>l.name&&l.name.trim()&&parseFloat(l.qty)>0);
   if(!validLines.length){alert("Добавьте хотя бы одну позицию с количеством");return;}
   try{
@@ -1217,12 +1223,47 @@ async function saveDefect(){
   }catch(e){alert("Ошибка: "+e.message);}
 }
 
+function castAddLine(){
+  if(castFormData.lines.length>=100) return;
+  // Save current DOM values before re-render
+  castFormData.lines.forEach(function(l, i){
+    const nameEl = document.querySelector('input[oninput="castFormData.lines['+i+'].name=this.value"]');
+    const qtyEl = document.querySelector('input[oninput="castFormData.lines['+i+'].qty=this.value"]');
+    if(nameEl) l.name = nameEl.value;
+    if(qtyEl) l.qty = qtyEl.value;
+  });
+  castFormData.lines.push({name:"",qty:""});
+  renderStock();
+}
+function castRemoveLine(i){
+  castFormData.lines.forEach(function(l, idx){
+    const nameEl = document.querySelector('input[oninput="castFormData.lines['+idx+'].name=this.value"]');
+    const qtyEl = document.querySelector('input[oninput="castFormData.lines['+idx+'].qty=this.value"]');
+    if(nameEl) l.name = nameEl.value;
+    if(qtyEl) l.qty = qtyEl.value;
+  });
+  castFormData.lines.splice(i,1);
+  if(!castFormData.lines.length) castFormData.lines.push({name:"",qty:""});
+  renderStock();
+}
 function defectAddLine(){
   if(defectFormData.lines.length>=100)return;
+  defectFormData.lines.forEach(function(l, i){
+    const nameEl = document.querySelector('input[oninput="defectFormData.lines['+i+'].name=this.value"]');
+    const qtyEl = document.querySelector('input[oninput="defectFormData.lines['+i+'].qty=this.value"]');
+    if(nameEl) l.name = nameEl.value;
+    if(qtyEl) l.qty = qtyEl.value;
+  });
   defectFormData.lines.push({name:"",qty:""});
   renderStock();
 }
 function defectRemoveLine(i){
+  defectFormData.lines.forEach(function(l, idx){
+    const nameEl = document.querySelector('input[oninput="defectFormData.lines['+idx+'].name=this.value"]');
+    const qtyEl = document.querySelector('input[oninput="defectFormData.lines['+idx+'].qty=this.value"]');
+    if(nameEl) l.name = nameEl.value;
+    if(qtyEl) l.qty = qtyEl.value;
+  });
   defectFormData.lines.splice(i,1);
   if(!defectFormData.lines.length) defectFormData.lines.push({name:"",qty:""});
   renderStock();
