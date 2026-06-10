@@ -1409,6 +1409,63 @@ async function saveDefect(){
   }catch(e){alert("Ошибка: "+e.message);}
 }
 
+async function saveCasting(){
+  if(!castFormData.category){alert("Выберите категорию");return;}
+  castSaveDomValues();
+  const validLines = castFormData.lines.filter(function(l){
+    return l.name && l.name.trim() && parseFloat(l.qty)>0;
+  });
+  if(!validLines.length){alert("Добавьте хотя бы одну позицию с количеством");return;}
+  try{
+    for(var i=0; i<validLines.length; i++){
+      var l = validLines[i];
+      await db.collection("castings").add({
+        date: castFormData.date,
+        category: castFormData.category,
+        name: l.name.trim(),
+        qty: parseFloat(l.qty),
+        createdAt: Date.now(),
+        createdBy: currentUser.name
+      });
+    }
+    castFormData = {date:today(), category:"", lines:[{name:"",qty:""}]};
+    castFormStep = 0;
+    showCastForm = false;
+    editCastingGroup = null;
+    renderStock();
+  }catch(e){ alert("Ошибка: "+e.message); }
+}
+
+async function saveCastingEdit(){
+  if(!editCastingGroup){ saveCasting(); return; }
+  castSaveDomValues();
+  const validLines = castFormData.lines.filter(function(l){
+    return l.name && l.name.trim() && parseFloat(l.qty)>0;
+  });
+  if(!validLines.length){alert("Добавьте хотя бы одну позицию");return;}
+  try{
+    for(var j=0; j<editCastingGroup.ids.length; j++){
+      await db.collection("castings").doc(editCastingGroup.ids[j]).delete();
+    }
+    for(var k=0; k<validLines.length; k++){
+      var ln = validLines[k];
+      await db.collection("castings").add({
+        date: castFormData.date,
+        category: castFormData.category,
+        name: ln.name.trim(),
+        qty: parseFloat(ln.qty),
+        createdAt: Date.now(),
+        createdBy: currentUser.name
+      });
+    }
+    castFormData = {date:today(), category:"", lines:[{name:"",qty:""}]};
+    castFormStep = 0;
+    showCastForm = false;
+    editCastingGroup = null;
+    renderStock();
+  }catch(e){ alert("Ошибка: "+e.message); }
+}
+
 function castSaveDomValues(){
   castFormData.lines.forEach(function(l, i){
     const nameEl = document.getElementById('cast-name-'+i);
