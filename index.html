@@ -987,7 +987,7 @@ if(castFormData.lines.length<100){
         }
 
         html += '<div class="flex" style="margin-top:14px">';
-        html += '<button class="btn" style="background:#7c3aed;flex:1;font-size:14px" onclick="'+(editCastingGroup?'saveCastingEdit()':'saveCasting()')+'">💾 '+(editCastingGroup?'Сохранить изменения':'Сохранить')+'</button>';
+        html += '<button class="btn" style="background:#7c3aed;flex:1;font-size:14px" onclick="doSaveCasting()">💾 Сохранить</button>';
         html += '<button class="btn btn-dark" onclick="showCastForm=false;castFormStep=0;castFormData={date:today(),category:\'\',lines:[{name:\'\',qty:\'\'}]};editCastingGroup=null;renderStock()">Отмена</button>';
         html += '</div></div>';
       }
@@ -1099,7 +1099,7 @@ if(defectFormData.lines.length<100){
         }
 
         html += '<div class="flex" style="margin-top:14px">';
-        html += '<button class="btn" style="background:#dc2626;flex:1;font-size:14px" onclick="'+(editDefectGroup?'saveDefectEdit()':'saveDefect()')+'">💾 '+(editDefectGroup?'Сохранить изменения':'Сохранить')+'</button>';
+        html += '<button class="btn" style="background:#dc2626;flex:1;font-size:14px" onclick="doSaveDefect()">💾 Сохранить</button>';
         html += '<button class="btn btn-dark" onclick="showDefectForm=false;defectFormStep=0;defectFormData={date:today(),category:\'\',lines:[{name:\'\',qty:\'\'}]};editDefectGroup=null;renderStock()">Отмена</button>';
         html += '</div></div>';
       }
@@ -1387,6 +1387,11 @@ if(defectFormData.lines.length<100){
   }
 }
 
+function doSaveDefect(){
+  if(editDefectGroup) saveDefectEdit();
+  else saveDefect();
+}
+
 async function saveDefect(){
   if(!defectFormData.category){alert("Выберите категорию");return;}
   defectSaveDomValues();
@@ -1407,6 +1412,11 @@ async function saveDefect(){
     defectFormStep=0;
     showDefectForm=false;
   }catch(e){alert("Ошибка: "+e.message);}
+}
+
+function doSaveCasting(){
+  if(editCastingGroup) saveCastingEdit();
+  else saveCasting();
 }
 
 async function saveCasting(){
