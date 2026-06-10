@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"/>
+<!-- v2.1 -->
 <meta http-equiv="Pragma" content="no-cache"/>
 <meta http-equiv="Expires" content="0"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0"/>
@@ -854,7 +855,7 @@ let castFormData={date:today(),category:"",lines:[{name:"",qty:""}]};
 let editCastingGroup=null; // {date, category, records:[]}
 let showInertForm=false;
 let inertSubTab="history"; // "history" | "balance"
-let inertBalance={Цемент:"",Щебень:"",Песок:""}; // manual balance inputs
+let inertBalance={"Цемент":"","Щебень":"","Песок":""}; // manual balance inputs
 let inertFormStep=0; // 0=material, 1=type(debt/receipt), 2=details
 let inertFormData={material:"Цемент",type:"debt",date:today(),qty:"",price:"",note:""};
 let showDefectForm=false;
@@ -1454,9 +1455,9 @@ function buildCastLines(){
   return h;
 }
 async function saveInertBalance(){
-  const cement = parseFloat(document.getElementById('bal-cement')?.value||0)||0;
-  const gravel = parseFloat(document.getElementById('bal-gravel')?.value||0)||0;
-  const sand = parseFloat(document.getElementById('bal-sand')?.value||0)||0;
+  const cement = parseFloat(document.getElementById('bal-cement')?.value)||0;
+  const gravel = parseFloat(document.getElementById('bal-gravel')?.value)||0;
+  const sand = parseFloat(document.getElementById('bal-sand')?.value)||0;
   try{
     await db.collection("meta").doc("inertBalances").set({
       Цемент: cement,
