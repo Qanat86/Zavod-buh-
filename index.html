@@ -858,6 +858,7 @@ let inertSubTab="history"; // "history" | "balance"
 let inertBalance={"Цемент":"","Щебень":"","Песок":""}; // manual balance inputs
 let inertFormStep=0; // 0=material, 1=type(debt/receipt), 2=details
 let inertFormData={material:"Цемент",type:"debt",date:today(),qty:"",price:"",note:""};
+let editInertId=null;
 let showDefectForm=false;
 let defectFormStep=0;
 let defectFormData={date:today(),category:"",lines:[{name:"",qty:""}]};
@@ -1161,7 +1162,7 @@ if(defectFormData.lines.length<100){
     // Form
     if(showInertForm && isAdmin){
       html += '<div class="card" style="margin-bottom:12px;border-color:#d97706">';
-      html += '<div style="font-weight:700;font-size:14px;color:#f59e0b;margin-bottom:12px">📝 Новая запись</div>';
+      html += '<div style="font-weight:700;font-size:14px;color:#f59e0b;margin-bottom:12px">'+(editInertId?'✏ Редактировать запись':'📝 Новая запись')+'</div>';
 
       // STEP 0 — MATERIAL
       const i0done = inertFormData.material.length>0;
@@ -1203,8 +1204,8 @@ if(defectFormData.lines.length<100){
         }
         html += '<div style="color:#4a5568;font-size:11px;margin-bottom:4px">Контрагент / Примечание</div>';
         html += '<input type="text" id="inert-note" placeholder="Поставщик или примечание" value="'+(inertFormData.note||'')+'" oninput="inertFormData.note=this.value" style="margin-bottom:12px"/>';
-        html += '<div class="flex"><button class="btn" style="background:#d97706;flex:1;font-size:14px" onclick="saveInert()">💾 Сохранить</button>';
-        html += '<button class="btn btn-dark" onclick="cancelInertForm()">Отмена</button></div>';
+        html += '<div class="flex"><button class="btn" style="background:#d97706;flex:1;font-size:14px" onclick="saveInert()">💾 '+(editInertId?'Сохранить изменения':'Сохранить')+'</button>';
+        html += '<button class="btn btn-dark" onclick="cancelEditInert()">Отмена</button></div>';
         html += '</div>';
       }
       html += '</div>';
@@ -1282,7 +1283,12 @@ if(defectFormData.lines.length<100){
         html += '<span style="font-family:Courier New,monospace;font-weight:700;color:#f59e0b">'+r.qty+' '+unit+'</span>';
         html += '</div>';
         html += '<div style="color:#8892a0;font-size:11px;margin-top:4px">'+fmtDate(r.date)+' · Цена: '+fmt(r.price)+' ₸/'+unit+' · Итого: '+fmt(total)+' ₸'+(r.note?' · '+r.note:'')+'</div>';
-        if(isAdmin) html += '<button onclick="deleteInert(\''+r.id+'\')" style="background:none;border:none;color:#f87171;cursor:pointer;font-size:12px;margin-top:4px">🗑 Удалить</button>';
+        if(isAdmin){
+          html += '<div style="margin-top:6px">';
+          html += '<button onclick="startEditInert(\''+r.id+'\')" style="background:none;border:1px solid #d97706;color:#f59e0b;border-radius:6px;padding:3px 10px;cursor:pointer;font-size:11px;font-weight:700;margin-right:6px">✏ Редактировать</button>';
+          html += '<button onclick="deleteInert(\''+r.id+'\')" style="background:none;border:none;color:#f87171;cursor:pointer;font-size:12px">🗑 Удалить</button>';
+          html += '</div>';
+        }
         html += '</div>';
       });
     }
@@ -1551,46 +1557,146 @@ async function saveInert(){
   if(!qty) return alert("Введите количество");
   if(!price) return alert("Введите цену");
   const total = qty*price;
-  try{
-    // Save to inerts collection
-    const savedMaterial = inertFormData.material;
-    const savedType = inertFormData.type;
-    const savedDate = inertFormData.date;
-    await db.collection("inerts").add({
-      material: savedMaterial,
-      type: savedType,
-      date: savedDate,
-      qty: qty,
-      price: price,
-      total: total,
-      note: note,
-      createdAt: Date.now(),
-      createdBy: currentUser.name
-    });
+  const savedMaterial = inertFormData.material;
+  const savedType = inertFormData.type;
+  const savedDate = inertFormData.date;
+  const unit2 = savedMaterial==="Цемент"?"тн":"м³";
+  const debtNote = savedMaterial+" "+qty+" "+unit2+" × "+fmt(price)+" ₸";
 
-    // Долг → в склад инертных (уже сохранено выше) + в кредиторскую задолженность
-    const unit2 = savedMaterial==="Цемент"?"тн":"м³";
-    await db.collection("debts").add({
-      type: "payable",
-      counterparty: note||savedMaterial,
-      amount: total,
-      date: savedDate,
-      dueDate: "",
-      status: "open",
-      note: savedMaterial+" "+qty+" "+unit2+" × "+fmt(price)+" ₸",
-      createdAt: Date.now()
-    });
-    // НЕ добавляем в текущий склад при долге
+  try{
+    if(editInertId){
+      // ===== РЕДАКТИРОВАНИЕ существующей записи =====
+      const oldRec = (data.inerts||[]).find(r=>r.id===editInertId);
+      const oldTotal = oldRec ? (parseFloat(oldRec.qty)||0)*(parseFloat(oldRec.price)||0) : 0;
+
+      await db.collection("inerts").doc(editInertId).update({
+        material: savedMaterial,
+        type: savedType,
+        date: savedDate,
+        qty: qty,
+        price: price,
+        total: total,
+        note: note,
+        updatedAt: Date.now(),
+        updatedBy: currentUser.name
+      });
+
+      // Скорректировать связанную кредиторскую задолженность
+      if(oldRec && oldRec.debtId){
+        const debtSnap = await db.collection("debts").doc(oldRec.debtId).get();
+        if(debtSnap.exists){
+          const d = debtSnap.data();
+          // Учитываем уже частично оплаченную сумму: diff = новая сумма - старая
+          const diff = total - oldTotal;
+          const newAmount = Math.max(0, Math.round(((d.amount||0)+diff)*100)/100);
+          await db.collection("debts").doc(oldRec.debtId).update({
+            counterparty: note||savedMaterial,
+            amount: newAmount,
+            date: savedDate,
+            note: debtNote,
+            status: newAmount<=0 ? "closed" : "open"
+          });
+        } else if(savedType==="debt"){
+          // Долга не было (например тип сменили на debt) — создаём новый
+          const ref = await db.collection("debts").add({
+            type: "payable",
+            counterparty: note||savedMaterial,
+            amount: total,
+            date: savedDate,
+            dueDate: "",
+            status: "open",
+            note: debtNote,
+            createdAt: Date.now()
+          });
+          await db.collection("inerts").doc(editInertId).update({debtId: ref.id});
+        }
+      } else if(savedType==="debt"){
+        const ref = await db.collection("debts").add({
+          type: "payable",
+          counterparty: note||savedMaterial,
+          amount: total,
+          date: savedDate,
+          dueDate: "",
+          status: "open",
+          note: debtNote,
+          createdAt: Date.now()
+        });
+        await db.collection("inerts").doc(editInertId).update({debtId: ref.id});
+      }
+    } else {
+      // ===== НОВАЯ ЗАПИСЬ =====
+      const docRef = await db.collection("inerts").add({
+        material: savedMaterial,
+        type: savedType,
+        date: savedDate,
+        qty: qty,
+        price: price,
+        total: total,
+        note: note,
+        createdAt: Date.now(),
+        createdBy: currentUser.name
+      });
+
+      // Долг → в кредиторскую задолженность (привязываем debtId к записи инертных)
+      const debtRef = await db.collection("debts").add({
+        type: "payable",
+        counterparty: note||savedMaterial,
+        amount: total,
+        date: savedDate,
+        dueDate: "",
+        status: "open",
+        note: debtNote,
+        createdAt: Date.now()
+      });
+      await db.collection("inerts").doc(docRef.id).update({debtId: debtRef.id});
+      // НЕ добавляем в текущий склад при долге
+    }
 
     inertFormData={material:"Цемент",type:"debt",date:today(),qty:"",price:"",note:""};
     inertFormStep=0;
     showInertForm=false;
+    editInertId=null;
+    renderStock();
   }catch(e){ alert("Ошибка: "+e.message); }
 }
 
+function startEditInert(id){
+  const r = (data.inerts||[]).find(x=>x.id===id);
+  if(!r) return;
+  inertFormData = {
+    material: r.material,
+    type: r.type,
+    date: r.date,
+    qty: String(r.qty),
+    price: String(r.price),
+    note: r.note||""
+  };
+  editInertId = id;
+  inertFormStep = 2;
+  showInertForm = true;
+  renderStock();
+}
+
+function cancelEditInert(){
+  inertFormData={material:"Цемент",type:"debt",date:today(),qty:"",price:"",note:""};
+  inertFormStep=0;
+  showInertForm=false;
+  editInertId=null;
+  renderStock();
+}
+
 async function deleteInert(id){
-  if(!confirm("Удалить запись?")) return;
-  await db.collection("inerts").doc(id).delete();
+  if(!confirm("Удалить запись? Связанная задолженность тоже будет удалена.")) return;
+  const r = (data.inerts||[]).find(x=>x.id===id);
+  try{
+    if(r && r.debtId){
+      const debtSnap = await db.collection("debts").doc(r.debtId).get();
+      if(debtSnap.exists){
+        await db.collection("debts").doc(r.debtId).delete();
+      }
+    }
+    await db.collection("inerts").doc(id).delete();
+  }catch(e){ alert("Ошибка: "+e.message); }
 }
 
 function printInerts(){
@@ -2211,8 +2317,13 @@ function renderDebts(){
   const isAdmin=currentUser.role==="admin";
   const receivable=data.debts.filter(d=>d.type==="receivable");
   const payable=data.debts.filter(d=>d.type==="payable");
-  const totalR=receivable.filter(d=>d.status==="open").reduce((s,d)=>s+d.amount,0);
+  const totalRManual=receivable.filter(d=>d.status==="open").reduce((s,d)=>s+d.amount,0);
   const totalP=payable.filter(d=>d.status==="open").reduce((s,d)=>s+d.amount,0);
+
+  // Авто-дебиторская: заказы, ожидающие оплаты (из Дашборда)
+  const pendingOrders=(data.orders||[]).filter(o=>getOrderPaid(o)<o.total);
+  const totalRAuto=pendingOrders.reduce((s,o)=>s+(o.total-getOrderPaid(o)),0);
+  const totalR=totalRManual+totalRAuto;
 
   let html=`<div class="flex" style="justify-content:space-between;margin-bottom:12px">
     <div class="section-title" style="margin-bottom:0">Задолженности</div>
@@ -2264,8 +2375,21 @@ function renderDebts(){
   </div>`;
 
   html+=`<div class="label">Дебиторская (нам должны)</div>`;
+  if(pendingOrders.length){
+    html+=`<div style="background:#0d2018;border:1px solid #166534;border-radius:10px;padding:8px 12px;margin-bottom:8px;font-size:11px;color:#22c55e">📋 Автоматически из заказов (Дашборд → Ожидают оплаты)</div>`;
+    pendingOrders.forEach(o=>{
+      const paid=getOrderPaid(o), rem=o.total-paid;
+      html+=`<div class="card" style="margin-bottom:8px;border-left:3px solid #166534">
+        <div class="flex" style="justify-content:space-between">
+          <span style="font-weight:700;font-size:13px">#${o.num} ${esc(o.client)}</span>
+          <span class="mono" style="font-weight:700;color:#22c55e;font-size:14px">${fmt(rem)} ₸</span>
+        </div>
+        <div style="color:#8892a0;font-size:11px;margin-top:4px">${fmtDate(o.date)} · Итого: ${fmt(o.total)} ₸ · Оплачено: ${fmt(paid)} ₸</div>
+      </div>`;
+    });
+  }
   receivable.forEach(d=>html+=debtCard(d));
-  if(!receivable.length)html+=`<div class="empty">Нет записей</div>`;
+  if(!receivable.length && !pendingOrders.length)html+=`<div class="empty">Нет записей</div>`;
   html+=`<div class="label" style="margin-top:16px">Кредиторская (мы должны)</div>`;
   payable.forEach(d=>html+=debtCard(d));
   if(!payable.length)html+=`<div class="empty">Нет записей</div>`;
@@ -2298,9 +2422,13 @@ async function delDebt(id){if(!confirm("Удалить?"))return;await db.collec
 function printDebts(){
   const receivable=data.debts.filter(d=>d.type==="receivable");
   const payable=data.debts.filter(d=>d.type==="payable");
-  const totalR=receivable.filter(d=>d.status==="open").reduce((s,d)=>s+d.amount,0);
+  const totalRManual=receivable.filter(d=>d.status==="open").reduce((s,d)=>s+d.amount,0);
   const totalP=payable.filter(d=>d.status==="open").reduce((s,d)=>s+d.amount,0);
+  const pendingOrders=(data.orders||[]).filter(o=>getOrderPaid(o)<o.total);
+  const totalRAuto=pendingOrders.reduce((s,o)=>s+(o.total-getOrderPaid(o)),0);
+  const totalR=totalRManual+totalRAuto;
   const debtRows=(list)=>list.map(d=>`<tr><td>${d.counterparty}</td><td align="right" style="font-weight:bold">${fmt(d.amount)} ₸</td><td>${fmtDate(d.date)}</td><td>${d.dueDate?fmtDate(d.dueDate):"-"}</td><td>${d.status==="open"?"Открыто":"Закрыто"}</td><td>${d.note||"-"}</td></tr>`).join("");
+  const orderRows=pendingOrders.map(o=>{const paid=getOrderPaid(o),rem=o.total-paid;return `<tr><td>Заказ #${o.num} — ${o.client}</td><td align="right" style="font-weight:bold;color:green">${fmt(rem)} ₸</td><td>${fmtDate(o.date)}</td><td>-</td><td>Открыто</td><td>Итого: ${fmt(o.total)}, оплачено: ${fmt(paid)}</td></tr>`;}).join("");
   const html=`<head><title>Задолженности</title>
   <style>body{font-family:Arial;padding:20px;font-size:12px}h1{font-size:18px}h2{font-size:14px;margin-top:20px}
   table{width:100%;border-collapse:collapse;margin-bottom:12px}th{background:#f0f4ff;padding:6px 8px;text-align:left;border:1px solid #ddd}
@@ -2310,9 +2438,9 @@ function printDebts(){
   <h1>⚙ ЗАВОД БУХ — Задолженности</h1>
   <p style="color:#888;font-size:12px">Дата: ${new Date().toLocaleDateString("ru-RU")}</p>
   <h2>Дебиторская задолженность (нам должны)</h2>
-  <div class="total">Итого открытых: ${fmt(totalR)} ₸</div>
+  <div class="total">Итого открытых: ${fmt(totalR)} ₸ (вкл. ${fmt(totalRAuto)} ₸ из заказов)</div>
   <table><thead><tr><th>Контрагент</th><th>Сумма</th><th>Дата</th><th>Срок</th><th>Статус</th><th>Примечание</th></tr></thead>
-  <tbody>${debtRows(receivable)}</tbody></table>
+  <tbody>${orderRows}${debtRows(receivable)}</tbody></table>
   <h2>Кредиторская задолженность (мы должны)</h2>
   <div class="total">Итого открытых: ${fmt(totalP)} ₸</div>
   <table><thead><tr><th>Контрагент</th><th>Сумма</th><th>Дата</th><th>Срок</th><th>Статус</th><th>Примечание</th></tr></thead>
