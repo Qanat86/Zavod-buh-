@@ -119,7 +119,6 @@ header{padding:0 6px}
       <button class="nav-btn" onclick="showPage('debts')" id="nav-debts"><span class="icon">🤝</span>Долги</button>
       <button class="nav-btn" onclick="showPage('reports')" id="nav-reports"><span class="icon">📈</span>Отчёты</button>
     </div>
-    <button class="logout-btn" onclick="doLogout()" id="user-name-btn" style="flex-shrink:0;white-space:nowrap;font-size:11px;padding:4px 6px">↩</button>
   </header>
 
   <div id="page-dashboard" class="page active"></div>
@@ -182,7 +181,6 @@ function doLogin() {
     sessionStorage.setItem("buh_user", JSON.stringify(u));
     document.getElementById("login-page").style.display = "none";
     document.getElementById("main-app").style.display = "block";
-    document.getElementById("user-name-btn").textContent = u.name.split(" ")[0]+" ↩";
     startListeners();
     showPage("dashboard");
   } else {
@@ -2875,7 +2873,6 @@ window.addEventListener("DOMContentLoaded",()=>{
       currentUser=JSON.parse(saved);
       document.getElementById("login-page").style.display="none";
       document.getElementById("main-app").style.display="block";
-      document.getElementById("user-name-btn").textContent=currentUser.name.split(" ")[0]+" ↩";
       startListeners();
       showPage("dashboard");
     }catch(e){sessionStorage.removeItem("buh_user");}
