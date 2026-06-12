@@ -919,9 +919,9 @@ function renderStock(){
       tabsHtml += '<button class="btn btn-sm" onclick="activeWarehouseId=\''+wh.id+'\';selectedStockItem=null;renderStock()" style="background:'+(activeWarehouseId===wh.id?"#2563eb":"#1e2433")+'">'+wh.name+'</button>';
     });
     if(isAdmin) tabsHtml += '<button class="btn btn-sm" onclick="showWarehouseForm=!showWarehouseForm;renderStock()" style="background:#1e2433;border:1px dashed #2a2f3e">+ Новый склад</button>';
-    tabsHtml += '<button class="btn btn-sm" onclick="activeWarehouseId=\'castings\';selectedStockItem=null;renderStock()" style="background:'+(activeWarehouseId==="castings"?"#7c3aed":"#1e2433")+'">🏭 Залитые</button>';
+        tabsHtml += '<button class="btn btn-sm" onclick="activeWarehouseId=\'castings\';selectedStockItem=null;renderStock()" style="background:'+(activeWarehouseId==="castings"?"#7c3aed":"#1e2433")+'">🏭 Залитые</button>';
     tabsHtml += '<button class="btn btn-sm" onclick="activeWarehouseId=\'defects\';selectedStockItem=null;renderStock()" style="background:'+(activeWarehouseId==="defects"?"#dc2626":"#1e2433")+'">❌ Браки</button>';
-    tabsHtml += '<button class="btn btn-sm" onclick="activeWarehouseId=\'inert\';selectedStockItem=null;renderStock()" style="background:'+(activeWarehouseId==="inert"?"#d97706":"#1e2433")+'">🪨 Инертные</button>';
+tabsHtml += '<button class="btn btn-sm" onclick="activeWarehouseId=\'inert\';selectedStockItem=null;renderStock()" style="background:'+(activeWarehouseId==="inert"?"#d97706":"#1e2433")+'">🪨 Инертные</button>';
     tabsHtml += '</div>';
 
     let html = '';
