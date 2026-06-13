@@ -413,6 +413,9 @@ function renderOrders() {
         <div class="flex" style="margin-top:8px;flex-wrap:wrap">
           ${['Аванс','Остаток','Полная оплата','Возврат'].map(t=>`<button class="btn btn-sm ${payFormData.type===t?'':'btn-dark'}" onclick="setPayType('${t}')">${t}</button>`).join('')}
         </div>
+        <div class="flex" style="margin-top:8px;flex-wrap:wrap">
+          ${ACCOUNTS.map(a=>`<button class="btn btn-sm ${payFormData.account===a.id?'':'btn-dark'}" onclick="payFormData.account='${a.id}';renderOrders()">${a.name}</button>`).join('')}
+        </div>
         <div class="grid2" style="margin-top:8px">
           <input type="number" placeholder="Сумма ₸" value="${payFormData.amount}" oninput="payFormData.amount=this.value"/>
           <input type="date" value="${payFormData.date}" onchange="payFormData.date=this.value"/>
@@ -594,21 +597,25 @@ async function delOrder(id) {
 }
 function togglePayPanel(id) {
   showPaymentOrderId = showPaymentOrderId===id ? null : id;
-  payFormData={type:"Аванс",amount:"",date:today(),time:nowTime(),editIdx:null};
+  payFormData={type:"Аванс",account:"cash",amount:"",date:today(),time:nowTime(),editIdx:null};
   renderOrders();
 }
 function setPayType(t) { payFormData.type=t; renderOrders(); }
 function editPayment(orderId,idx) {
   const o = data.orders.find(x=>x.id===orderId);
   const p = o.payments[idx];
-  payFormData={type:p.type,amount:String(p.amount),date:p.date,time:p.time||nowTime(),editIdx:idx};
+  payFormData={type:p.type,account:p.account||"cash",amount:String(p.amount),date:p.date,time:p.time||nowTime(),editIdx:idx};
   showPaymentOrderId=orderId;
   renderOrders();
 }
-async function deletePayment(orderId,idx) {
+async async function deletePayment(orderId,idx) {
   if (!confirm("Удалить оплату?")) return;
   const o = data.orders.find(x=>x.id===orderId);
+  const removed = o.payments[idx];
   const payments = o.payments.filter((_,i)=>i!==idx);
+  if(removed && removed.txId){
+    try{ await db.collection("transactions").doc(removed.txId).delete(); }catch(e){}
+  }
   await db.collection("orders").doc(orderId).update({payments});
 }
 async function savePayment(orderId) {
@@ -621,13 +628,39 @@ async function savePayment(orderId) {
     const totalPaid = other.reduce((s,p)=>p.type==="Возврат"?s-p.amount:s+p.amount,0);
     if (amount>totalPaid) { alert("Сумма возврата превышает оплаченную сумму ("+fmt(totalPaid)+" ₸)"); return; }
   }
-  const payment={type:payFormData.type,amount,date:payFormData.date,time:payFormData.time};
+  const account = payFormData.account||"cash";
+  const payment={type:payFormData.type,amount,account,date:payFormData.date,time:payFormData.time};
   let payments=[...(o.payments||[])];
+  const oldPayment = payFormData.editIdx!==null ? payments[payFormData.editIdx] : null;
+  if (oldPayment && oldPayment.txId) payment.txId = oldPayment.txId;
+
+  // Итоги оплат (Аванс/Остаток/Полная оплата) — автоматически в Cash Flow и P&L как "доход"
+  // Возврат — отрицательным доходом (уменьшает итоги)
+  const txAmount = payFormData.type==="Возврат" ? -amount : amount;
+  const txCategory = INCOME_CAT.includes(o.category) ? o.category : INCOME_CAT[0];
+  const txData = {
+    type:"income",
+    account,
+    category: txCategory,
+    amount: txAmount,
+    date: payFormData.date,
+    note: "Заказ #"+o.num+" "+o.client+" — "+payFormData.type
+  };
+
+  try{
+    if(payment.txId){
+      await db.collection("transactions").doc(payment.txId).set(txData);
+    } else {
+      const txRef = await db.collection("transactions").add(txData);
+      payment.txId = txRef.id;
+    }
+  }catch(e){ alert("Ошибка синхронизации с Деньги: "+e.message); }
+
   if (payFormData.editIdx!==null) payments[payFormData.editIdx]=payment;
   else payments.push(payment);
   await db.collection("orders").doc(orderId).update({payments});
   showPaymentOrderId=null;
-  payFormData={type:"Аванс",amount:"",date:today(),time:nowTime(),editIdx:null};
+  payFormData={type:"Аванс",account:"cash",amount:"",date:today(),time:nowTime(),editIdx:null};
 }
 function printAllOrders() {
   const orders = [...data.orders].sort((a,b)=>b.num-a.num);
