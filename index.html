@@ -608,7 +608,7 @@ function editPayment(orderId,idx) {
   showPaymentOrderId=orderId;
   renderOrders();
 }
-async async function deletePayment(orderId,idx) {
+async function deletePayment(orderId,idx) {
   if (!confirm("Удалить оплату?")) return;
   const o = data.orders.find(x=>x.id===orderId);
   const removed = o.payments[idx];
